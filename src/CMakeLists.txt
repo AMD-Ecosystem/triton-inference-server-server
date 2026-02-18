@@ -780,11 +780,16 @@ install(
 
 if(${TRITON_ENABLE_GPU} OR ${TRITON_ENABLE_ROCM})
   #
-  # memory_alloc example
+  # memory_alloc example (use hipified source for ROCm when available)
   #
+  if(${TRITON_ENABLE_ROCM} AND TRITON_HIPIFIED_SOURCES_DIR)
+    set(_memory_alloc_src "${TRITON_HIPIFIED_SOURCES_DIR}/src/memory_alloc.cc")
+  else()
+    set(_memory_alloc_src memory_alloc.cc)
+  endif()
   add_executable(
     memory_alloc
-    memory_alloc.cc
+    ${_memory_alloc_src}
   )
 
   target_compile_features(memory_alloc PRIVATE cxx_std_${TRITON_MIN_CXX_STANDARD})
