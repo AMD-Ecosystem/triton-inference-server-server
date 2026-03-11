@@ -3108,7 +3108,7 @@ if __name__ == "__main__":
         "--ort-branch",
         required=False,
         type=str,
-        default="add_padded_batch",
+        default="target_batch_compile",
         help="ONNX Runtime (ROCm) git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
@@ -3122,7 +3122,7 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="concat_ai",
+        default="release/rocm-rel-7.2",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
