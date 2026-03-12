@@ -1198,44 +1198,24 @@ ENV BUILD_NUMBER={}
 """.format(
             argmap["NVIDIA_BUILD_ID"]
         )
-    # ROCm + Ubuntu base image already has the right Docker client; do not update
-    need_docker_install = not (
-        getattr(FLAGS, "enable_rocm", False)
-        and getattr(FLAGS, "linux_distro", "ubuntu") == "ubuntu"
-    )
-    if need_docker_install:
-        # docker dependencies are different for debian and ubuntu linux distro
-        docker_apt_distro = (
-            "debian" if getattr(FLAGS, "linux_distro", "ubuntu") == "debian" else "ubuntu"
-        )
-        df += """
+    # Install Docker in buildbase for all Linux (Debian and Ubuntu, including ROCm).
+    # Static 25.x (API 1.44+) for daemon compatibility.
+    df += """
 # Ensure apt-get won't prompt for selecting options
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install docker docker buildx
-"""
-        df += """
+# Install Docker client 25.0.x (API 1.44+) for compatibility with daemon minimum API 1.44
+ENV DOCKER_VERSION=25.0.5
 RUN apt-get update \\
-      && apt-get install -y ca-certificates curl gnupg \\
-      && install -m 0755 -d /etc/apt/keyrings \\
-      && curl -fsSL https://download.docker.com/linux/{docker_apt_distro}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \\
-      && chmod a+r /etc/apt/keyrings/docker.gpg \\
-      && echo \\
-          "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/{docker_apt_distro} \\
-          "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \\
-          tee /etc/apt/sources.list.d/docker.list > /dev/null \\
-      && apt-get update \\
-      && (apt-get remove -y docker-ce docker-ce-cli 2>/dev/null || true) \\
-      && apt-get install -y docker.io docker-buildx-plugin
-""".format(
-            docker_apt_distro=docker_apt_distro
-        )
-    else:
-        df += """
-# Ensure apt-get won't prompt for selecting options
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Skip Docker install: ROCm Ubuntu base image already has Docker client 24.0.x (API 1.43)
+      && apt-get install -y --no-install-recommends ca-certificates wget \\
+      && rm -rf /var/lib/apt/lists/* \\
+      && set -eux \\
+      && wget -q "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" -O /tmp/docker.tgz \\
+      && tar -xzf /tmp/docker.tgz -C /tmp \\
+      && mv /tmp/docker/docker /usr/local/bin/docker \\
+      && rm -rf /tmp/docker /tmp/docker.tgz \\
+      && chmod +x /usr/local/bin/docker \\
+      && docker version || true
 """
     df += """
 # libcurl4-openSSL-dev is needed for GCS
@@ -1284,15 +1264,24 @@ RUN pip3 install --upgrade \\
           pybind11[global]
 """
 
-    df += f"""
-# Install boost version >= 1.78 for boost::span
-# Current libboost-dev apt packages are < 1.78, so install from tar.gz
+    # Debian 12: libboost-dev is 1.74 (< 1.78), so install Boost from tarball.
+    # Ubuntu 24.04: libboost-dev is >= 1.78 and provides BoostConfig.cmake; use apt.
+    if getattr(FLAGS, "linux_distro", "ubuntu") == "debian":
+        df += f"""
+# Install boost version >= 1.78 for boost::span (Debian 12 apt has only 1.74)
 # Remove existing /usr/include/boost first so mv replaces it (else mv creates boost/boost/)
 RUN wget -O /tmp/boost.tar.gz {FLAGS.boost_url} \\
       && sha256sum /tmp/boost.tar.gz | grep {FLAGS.boost_sha256} \\
       && (cd /tmp && tar xzf boost.tar.gz) \\
       && rm -rf /usr/include/boost \\
       && mv /tmp/boost_1_80_0/boost /usr/include/boost
+"""
+    else:
+        df += """
+# Install boost (Ubuntu base has >= 1.78; provides BoostConfig.cmake)
+RUN apt-get update \\
+  && apt-get install -y --no-install-recommends libboost-dev \\
+  && rm -rf /var/lib/apt/lists/*
 """
 
     if FLAGS.enable_gpu:
