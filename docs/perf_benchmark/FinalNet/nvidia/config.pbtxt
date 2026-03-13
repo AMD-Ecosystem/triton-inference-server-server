@@ -1,0 +1,85 @@
+name: "FinalNet_onnx"
+backend: "onnxruntime"
+max_batch_size: 8192
+
+dynamic_batching {
+    max_queue_delay_microseconds: 300
+    preserve_ordering: true
+}
+
+optimization {
+    cuda {
+        graphs: true
+    }
+    input_pinned_memory {
+        enable: true
+    }
+    execution_accelerators {
+        gpu_execution_accelerator: [
+            {
+                name: "tensorrt"
+                parameters {
+                    key: "precision_mode"
+                    value: "FP16"
+                }
+                parameters {
+                    key: "trt_engine_cache_enable"
+                    value: "1"
+                }
+                parameters {
+                    key: "trt_engine_cache_path"
+                    value: "/models/FinalNet_onnx/trt_engine_cache"
+                }
+            }
+        ]
+    }
+}
+
+input: [
+    { name: "input_0",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_1",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_2",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_3",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_4",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_5",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_6",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_7",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_8",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_9",  data_type: TYPE_INT64, dims: [1] },
+    { name: "input_10", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_11", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_12", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_13", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_14", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_15", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_16", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_17", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_18", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_19", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_20", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_21", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_22", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_23", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_24", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_25", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_26", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_27", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_28", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_29", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_30", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_31", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_32", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_33", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_34", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_35", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_36", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_37", data_type: TYPE_INT64, dims: [1] },
+    { name: "input_38", data_type: TYPE_INT64, dims: [1] }
+]
+output: [
+    { name: "y_pred", data_type: TYPE_FP32, dims: [1] }
+]
+
+instance_group [
+    { kind: KIND_GPU, count: 72, gpus: [0] }
+]
