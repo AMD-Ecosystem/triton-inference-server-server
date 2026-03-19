@@ -51,7 +51,7 @@ RUN apt-get update -y \
     && rm -rf /var/lib/apt/lists/* \
     && gcc --version && python3 --version && python3 -m pip --version
 
-# cmake 3.28 already in base image; install remaining build deps only
+# CMake 3.31.8+ already in base image (Dockerfile.debian12_rocm7.2); install remaining build deps only
 RUN pip install -U packaging ninja wheel 'setuptools<80' pybind11 Cython
 RUN apt-get update && apt-get install -y libjpeg-dev libsox-dev libsox-fmt-all sox && rm -rf /var/lib/apt/lists/*
 
