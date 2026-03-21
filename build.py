@@ -3155,7 +3155,7 @@ if __name__ == "__main__":
         "--ort-branch",
         required=False,
         type=str,
-        default="target_batch_compile",
+        default="remove_target_batch_compile_residule",
         help="ONNX Runtime (ROCm) git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(

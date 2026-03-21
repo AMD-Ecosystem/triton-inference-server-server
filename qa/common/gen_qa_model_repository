@@ -84,13 +84,23 @@ ONNX_VERSION=1.22.0 # https://github.com/microsoft/onnxruntime/blob/v1.28.0/tool
 ONNX_OPSET=26
 OPENVINO_VERSION=2024.5.0
 UBUNTU_IMAGE=${UBUNTU_IMAGE:=ubuntu:22.04}
-# Upstream NGC containers, so they follow the upstream train, not the container
-# being built -- there is no nvcr.io/nvidia/pytorch:26.09dev-py3.
-PYTORCH_IMAGE=${PYTORCH_IMAGE:=nvcr.io/nvidia/pytorch:$NVIDIA_UPSTREAM_VERSION-py3}
-TENSORRT_IMAGE=${TENSORRT_IMAGE:=nvcr.io/nvidia/tensorrt:$NVIDIA_UPSTREAM_VERSION-py3}
 # "all" per the container toolkit's documented values: every GPU, and the
 # default in the base CUDA images. "0" assumed that index exists.
 NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:=all}
+
+# ROCm support
+ROCM_ENABLED=$(echo "${TRITON_QA_GEN_ENABLE_ROCM:-0}" | tr '[:upper:]' '[:lower:]')
+if [ "$ROCM_ENABLED" = "1" ] || [ "$ROCM_ENABLED" = "on" ] || [ "$ROCM_ENABLED" = "true" ]; then
+    ROCM_ENABLED=true
+    log_message.info "ROCm mode enabled -- skipping OpenVINO and TensorRT model generation"
+    PYTORCH_IMAGE=${PYTORCH_IMAGE:=rocm/pytorch:rocm7.2_ubuntu24.04_py3.13_pytorch_release_2.10.0}
+else
+    ROCM_ENABLED=false
+    # Upstream NGC containers, so they follow the upstream train, not the container
+    # being built -- there is no nvcr.io/nvidia/pytorch:26.09dev-py3.
+    PYTORCH_IMAGE=${PYTORCH_IMAGE:=nvcr.io/nvidia/pytorch:$NVIDIA_UPSTREAM_VERSION-py3}
+    TENSORRT_IMAGE=${TENSORRT_IMAGE:=nvcr.io/nvidia/tensorrt:$NVIDIA_UPSTREAM_VERSION-py3}
+fi
 MODEL_TYPE=${MODEL_TYPE:-""}
 TRITON_MODELS_USE_DOCKER=${TRITON_MODELS_USE_DOCKER:-"1"}
 TRITON_MODELS_USE_ENROOT=${TRITON_MODELS_USE_ENROOT:-"1"}
@@ -103,7 +113,11 @@ PROJECT_NAME=${PROJECT_NAME:=tritonserver}
 log_message.status "define: Docker engine parameters"
 DOCKER_VOLUME=${DOCKER_VOLUME:=volume.gen_qa_model_repository.${CI_JOB_ID}}
 DOCKER_VOLUME_CONTAINER=${DOCKER_VOLUME}.gen_qa_model_repository.${CI_JOB_ID}
-DOCKER_GPU_ARGS=${DOCKER_GPU_ARGS:-$([[ -v RUNNER_GPUS && $RUNNER_GPUS =~ ^[0-9] ]] && eval $NV_DOCKER_ARGS || echo "--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES" )}
+if $ROCM_ENABLED; then
+    DOCKER_GPU_ARGS=${DOCKER_GPU_ARGS:-"--device=/dev/kfd --device=/dev/dri --group-add video"}
+else
+    DOCKER_GPU_ARGS=${DOCKER_GPU_ARGS:-$([[ -v RUNNER_GPUS && $RUNNER_GPUS =~ ^[0-9] ]] && eval $NV_DOCKER_ARGS || echo "--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES" )}
+fi
 
 function define_model_output_directories() {
     log_message.status "define: model output directories"
@@ -141,6 +155,12 @@ function define_model_output_directories() {
 
 function define_models_generation_scripts() {
     log_message.status "define: script names"
+    if $ROCM_ENABLED; then
+        GPU_SMI_CMD="rocm-smi || true"
+    else
+        GPU_SMI_CMD="nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
+nvidia-smi || true"
+    fi
     SCRIPT_NAME_SUFFIX=${SCRIPT_NAME_SUFFIX:-v2}
 
     OPENVINOSCRIPT=gen.OpenVINO.gen_qa_model_repository.${SCRIPT_NAME_SUFFIX}.sh
@@ -160,8 +180,7 @@ function define_models_generation_scripts() {
 #!/bin/bash
 # Make all generated files accessible outside of container
 umask 0000
-nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
-nvidia-smi || true
+$GPU_SMI_CMD
 echo -e "${COLOR_INFO}Generating OpenVINO models${COLOR_RESET}"
 set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -213,8 +232,7 @@ EOF
 #!/bin/bash
 # Make all generated files accessible outside of container
 umask 0000
-nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
-nvidia-smi || true
+$GPU_SMI_CMD
 echo -e "${COLOR_INFO}Generating ONNX models${COLOR_RESET}"
 set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -272,12 +290,51 @@ EOF
     fi
 
     log_message.status "create: PyTorch script - ${TORCHSCRIPT}"
+    if $ROCM_ENABLED; then
+    cat > $TORCHSCRIPT <<EOF
+#!/bin/bash
+umask 0000
+rocm-smi || true
+pip3 install onnxscript requests
+set -e
+set -x
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_models.py --libtorch --models_dir=$TRITON_MDLS_QA_MODEL
+chmod -R 777 $TRITON_MDLS_QA_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_models.py --libtorch --variable --models_dir=$TRITON_MDLS_QA_VARIABLE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_VARIABLE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_identity_models.py --libtorch --models_dir=$TRITON_MDLS_QA_IDENTITY_MODEL
+chmod -R 777 $TRITON_MDLS_QA_IDENTITY_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_reshape_models.py --libtorch --variable --models_dir=$TRITON_MDLS_QA_RESHAPE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_RESHAPE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_sequence_models.py --libtorch --models_dir=$TRITON_MDLS_QA_SEQUENCE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_SEQUENCE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_sequence_models.py --libtorch --variable --models_dir=$TRITON_MDLS_QA_VARIABLE_SEQUENCE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_VARIABLE_SEQUENCE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_implicit_models.py --libtorch --models_dir=$TRITON_MDLS_QA_SEQUENCE_IMPLICIT_MODEL
+chmod -R 777 $TRITON_MDLS_QA_SEQUENCE_IMPLICIT_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_implicit_models.py --libtorch --variable --models_dir=$TRITON_MDLS_QA_VARIABLE_SEQUENCE_IMPLICIT_MODEL
+chmod -R 777 $TRITON_MDLS_QA_VARIABLE_SEQUENCE_IMPLICIT_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_dyna_sequence_models.py --libtorch --models_dir=$TRITON_MDLS_QA_DYNA_SEQUENCE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_DYNA_SEQUENCE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_ragged_models.py --libtorch --models_dir=$TRITON_MDLS_QA_RAGGED_MODEL
+chmod -R 777 $TRITON_MDLS_QA_RAGGED_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_image_models.py --resnet50 --resnet152 --vgg19 --models_dir=$TRITON_MDLS_QA_DYNAMIC_BATCH_IMAGE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_DYNAMIC_BATCH_IMAGE_MODEL
+
+export TORCH_EXTENSIONS_DIR=/tmp/.cache/torch_extensions/
+mkdir -p \${TORCH_EXTENSIONS_DIR}
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_custom_ops_models.py --libtorch --models_dir=$TRITON_MDLS_QA_CUSTOM_OPS
+mkdir -p $TRITON_MDLS_QA_CUSTOM_OPS/libtorch_modulo/
+cp \${TORCH_EXTENSIONS_DIR}/custom_modulo/custom_modulo.so $TRITON_MDLS_QA_CUSTOM_OPS/libtorch_modulo/.
+chmod -R 777 $TRITON_MDLS_QA_CUSTOM_OPS
+exit 0
+EOF
+    else
     cat > $TORCHSCRIPT <<EOF
 #!/bin/bash
 # Make all generated files accessible outside of container
 umask 0000
-nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
-nvidia-smi || true
+$GPU_SMI_CMD
 echo -e "${COLOR_INFO}Generating PyTorch models${COLOR_RESET}"
 pip3 install onnxscript
 set -e
@@ -323,6 +380,8 @@ chmod -R 777 $TRITON_MDLS_QA_CUSTOM_OPS
 exit 0
 EOF
 
+    fi
+
     log_message.status "run: chmod a+x ${TORCHSCRIPT}"
     chmod a+x ${TORCHSCRIPT}
     if [ $? -ne 0 ]; then
@@ -335,8 +394,7 @@ EOF
 #!/bin/bash
 # Make all generated files accessible outside of container
 umask 0000
-nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
-nvidia-smi || true
+$GPU_SMI_CMD
 echo -e "${COLOR_INFO}Generating TensorRT models${COLOR_RESET}"
 set -e
 dpkg -l | grep TensorRT
@@ -498,6 +556,9 @@ if [ "$TRITON_MODELS_USE_DOCKER" -eq 1 ] && which docker ; then
     done
 
 
+    if $ROCM_ENABLED; then
+        log_message.info "Skipping OpenVINO model generation (ROCm mode)"
+    else
     log_message.status "docker run: $OPENVINOSCRIPT"
     log_message.info "docker run $DOCKER_GPU_ARGS -v $DOCKER_VOLUME:/mnt $UBUNTU_IMAGE bash -xe $TRITON_MDLS_SRC_DIR/$OPENVINOSCRIPT"
     docker run \
@@ -523,6 +584,7 @@ if [ "$TRITON_MODELS_USE_DOCKER" -eq 1 ] && which docker ; then
     fi
 
     rm $OPENVINOSCRIPT
+    fi
 
     log_message.status "docker run: $ONNXSCRIPT"
     log_message.info "docker run $DOCKER_GPU_ARGS -v $DOCKER_VOLUME:/mnt $UBUNTU_IMAGE bash -xe $TRITON_MDLS_SRC_DIR/$ONNXSCRIPT"
@@ -580,7 +642,9 @@ if [ "$TRITON_MODELS_USE_DOCKER" -eq 1 ] && which docker ; then
 
     rm $TORCHSCRIPT
 
-    if [ "$MODEL_TYPE" != "igpu" ] ; then
+    if $ROCM_ENABLED; then
+        log_message.info "Skipping TensorRT model generation (ROCm mode)"
+    elif [ "$MODEL_TYPE" != "igpu" ] ; then
         log_message.status "docker pull: $TENSORRT_IMAGE"
         docker pull $TENSORRT_IMAGE
 
@@ -673,6 +737,9 @@ elif [ "$TRITON_MODELS_USE_ENROOT" -eq 1 ] && which enroot ; then
     enroot import --output /tmp/ubuntu.$CI_JOB_ID.enroot.sqsh docker://$UBUNTU_IMAGE
 
 
+    if $ROCM_ENABLED; then
+        log_message.info "Skipping OpenVINO model generation (ROCm mode)"
+    else
     log_message.status "enroot create: openvino.ubuntu.$CI_JOB_ID"
     enroot create --name openvino.ubuntu.$CI_JOB_ID /tmp/ubuntu.$CI_JOB_ID.enroot.sqsh
     log_message.info "enroot start: openvino.ubuntu.$CI_JOB_ID"
@@ -680,6 +747,7 @@ elif [ "$TRITON_MODELS_USE_ENROOT" -eq 1 ] && which enroot ; then
     if [ $? -ne 0 ]; then
         log_message.error "enroot start: ${OPENVINOSCRIPT} failed"
         exit 1
+    fi
     fi
 
 
@@ -709,6 +777,9 @@ elif [ "$TRITON_MODELS_USE_ENROOT" -eq 1 ] && which enroot ; then
         exit 1
     fi
 
+    if $ROCM_ENABLED; then
+        log_message.info "Skipping TensorRT model generation (ROCm mode)"
+    else
     log_message.status "enroot import: $TENSORRT_IMAGE to /tmp/tensorrt.$CI_JOB_ID.enroot.sqsh"
     enroot import --output /tmp/tensorrt.$CI_JOB_ID.enroot.sqsh docker://$TENSORRT_IMAGE
     log_message.status "enroot create: tensorrt.$CI_JOB_ID"
@@ -718,6 +789,7 @@ elif [ "$TRITON_MODELS_USE_ENROOT" -eq 1 ] && which enroot ; then
     if [ $? -ne 0 ]; then
         log_message.error "enroot start: ${TRTSCRIPT} failed"
         exit 1
+    fi
     fi
 
 else

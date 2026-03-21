@@ -34,6 +34,7 @@ ARG TRITON_THIRD_PARTY_REPO_TAG=main
 ARG TRITON_BACKEND_REPO_TAG=main
 ARG TRITONTMP_DIR=/tmp
 ARG IGPU_BUILD=0
+ARG TRITON_ENABLE_ROCM=1
 
 ############################################################################
 ## Test artifacts built as part of the tritonserver build are
@@ -48,6 +49,22 @@ ARG TRITON_CORE_REPO_TAG
 ARG TRITON_THIRD_PARTY_REPO_TAG
 ARG TRITON_BACKEND_REPO_TAG
 ARG IGPU_BUILD
+ARG TRITON_ENABLE_ROCM
+
+# when TRITON_ENABLE_ROCM is set to ON, there are the repo URLs
+# https://github.com/triton-inference-server/server/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-server/tree/rocm7.2_r25.12
+# https://github.com/triton-inference-server/core/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-core/tree/rocm7.2_r25.12
+# https://github.com/triton-inference-server/backend/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-backend/tree/rocm7.2_r25.12
+# https://github.com/triton-inference-server/third_party/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-third_party/tree/rocm7.2_r25.12
+# https://github.com/triton-inference-server/python_backend/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-python_backend/tree/rocm7.2_r25.12
+# https://github.com/triton-inference-server/onnxruntime_backend/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-onnxruntime_backend/tree/rocm7.2_r25.12
+# https://github.com/triton-inference-server/vllm_backend/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-vllm_backend/tree/rocm7.2_r25.12
+# https://github.com/triton-inference-server/pytorch_backend/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-pytorch_backend/tree/rocm7.2_r25.12
+# https://github.com/triton-inference-server/tensorflow_backend/tree/r25.12 -> https://github.com/ROCm/triton-inference-server-tensorflow_backend/tree/rocm7.2_r25.12
+# but for common and identity backend, we use the original URLs
+# https://github.com/triton-inference-server/common/tree/r25.12 -> https://github.com/triton-inference-server/common/tree/r25.12
+# https://github.com/triton-inference-server/identity_backend/tree/r25.12 -> https://github.com/triton-inference-server/identity_backend/tree/r25.12
+
 
 # Ensure apt-get won't prompt for selecting options
 ENV DEBIAN_FRONTEND=noninteractive
@@ -123,8 +140,8 @@ RUN mkdir -p qa/common && \
     cp bin/simple qa/L0_simple_lib/. && \
     cp bin/memory_alloc qa/L0_io/. && \
     cp bin/multi_server qa/L0_multi_server/. && \
-    cp bin/memory_test qa/L0_memory/. && \
-    cp bin/pinned_memory_manager_test qa/L0_memory/. && \
+    (test -f bin/memory_test && cp bin/memory_test qa/L0_memory/. || true) && \
+    (test -f bin/pinned_memory_manager_test && cp bin/pinned_memory_manager_test qa/L0_memory/. || true) && \
     mkdir -p qa/L0_memory/python_models/repeat_int32/1 && \
     cp bin/repo_agent_test qa/L0_triton_repo_agent/. && \
     cp lib/libtritonrepoagent_relocation.so qa/L0_triton_repo_agent/. && \
@@ -135,14 +152,15 @@ RUN mkdir -p qa/common && \
     cp tritonbuild/tritonserver/backends/iterative_sequence/libtriton_iterative_sequence.so qa/L0_iterative_sequence/models/iterative_sequence/1/. && \
     cp bin/register_api_test qa/L0_register/. && \
     cp bin/async_work_queue_test qa/L0_async_work_queue/. && \
-    cp tritonbuild/tritonserver/backends/implicit_state/libtriton_implicit_state.so \
-       qa/L0_implicit_state/. && \
+    (test -f tritonbuild/tritonserver/backends/implicit_state/libtriton_implicit_state.so && \
+       cp tritonbuild/tritonserver/backends/implicit_state/libtriton_implicit_state.so \
+       qa/L0_implicit_state/. || true) && \
     mkdir qa/L0_data_compression/models && \
     cp -r docs/examples/model_repository/simple qa/L0_data_compression/models && \
     cp bin/data_compressor_test qa/L0_data_compression/. && \
     cp bin/tensor_size_test qa/L0_input_validation/. && \
     cp bin/metrics_api_test qa/L0_metrics/. && \
-    cp bin/response_cache_test qa/L0_response_cache/. && \
+    (test -f bin/response_cache_test && cp bin/response_cache_test qa/L0_response_cache/. || true) && \
     cp bin/request_cancellation_test qa/L0_request_cancellation/. && \
     cp bin/triton_json_test qa/L0_json/. && \
     cp bin/logging_test qa/L0_logging/. && \
@@ -171,8 +189,9 @@ RUN mkdir -p qa/L0_backend_identity/models && \
     mkdir -p qa/L0_backend_identity/models/identity_fp32/1
 
 RUN mkdir -p qa/custom_models/custom_sequence_int32/1 && \
-    cp tritonbuild/tritonserver/backends/sequence/libtriton_sequence.so \
-        qa/custom_models/custom_sequence_int32/1/. && \
+    (test -f tritonbuild/tritonserver/backends/sequence/libtriton_sequence.so && \
+        cp tritonbuild/tritonserver/backends/sequence/libtriton_sequence.so \
+        qa/custom_models/custom_sequence_int32/1/. || true) && \
     mkdir -p qa/custom_models/custom_dyna_sequence_int32/1 && \
     cp tritonbuild/tritonserver/backends/dyna_sequence/libtriton_dyna_sequence.so \
         qa/custom_models/custom_dyna_sequence_int32/1/.
@@ -196,13 +215,25 @@ ARG TRITON_BOOST_URL="https://archives.boost.io/release/1.80.0/source/boost_1_80
 WORKDIR /workspace/tritonbuild/python
 RUN --mount=type=secret,id=gitconfig,target=/run/secrets/gitconfig,required=false \
     export GIT_CONFIG_GLOBAL=/run/secrets/gitconfig && \
+    ROCM_ENABLED=$(echo "$TRITON_ENABLE_ROCM" | tr '[:upper:]' '[:lower:]') && \
+    if [ "$ROCM_ENABLED" = "1" ] || [ "$ROCM_ENABLED" = "on" ] || [ "$ROCM_ENABLED" = "true" ]; then \
+        ROCM_ENABLED=true; \
+    else \
+        ROCM_ENABLED=false; \
+    fi && \
     rm -rf install build && mkdir build && cd build && \
-    cmake -DCMAKE_INSTALL_PREFIX:PATH=/workspace/tritonbuild/python/install \
-        -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION} \
-        -DTRITON_COMMON_REPO_TAG:STRING=${TRITON_COMMON_REPO_TAG} \
-        -DTRITON_CORE_REPO_TAG:STRING=${TRITON_CORE_REPO_TAG} \
-        -DTRITON_BOOST_URL:STRING=${TRITON_BOOST_URL} \
-        -DTRITON_BACKEND_REPO_TAG:STRING=${TRITON_BACKEND_REPO_TAG} .. && \
+    if $ROCM_ENABLED; then \
+        cmake -DCMAKE_INSTALL_PREFIX:PATH=/workspace/tritonbuild/python/install \
+            -DTRITON_ENABLE_ROCM=ON \
+            -DTRITON_BOOST_URL:STRING=${TRITON_BOOST_URL} ..; \
+    else \
+        cmake -DCMAKE_INSTALL_PREFIX:PATH=/workspace/tritonbuild/python/install \
+            -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION} \
+            -DTRITON_COMMON_REPO_TAG:STRING=${TRITON_COMMON_REPO_TAG} \
+            -DTRITON_CORE_REPO_TAG:STRING=${TRITON_CORE_REPO_TAG} \
+            -DTRITON_BOOST_URL:STRING=${TRITON_BOOST_URL} \
+            -DTRITON_BACKEND_REPO_TAG:STRING=${TRITON_BACKEND_REPO_TAG} ..; \
+    fi && \
     make -j16 triton-shm-monitor install
 
 WORKDIR /workspace/
@@ -317,9 +348,11 @@ RUN cp client/src/grpc_generated/go/*.go qa/L0_simple_go_client/. && \
 FROM $BASE_IMAGE
 
 ARG TARGETPLATFORM
+ARG TRITON_ENABLE_ROCM
 
 # Ensure apt-get won't prompt for selecting options
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TRITON_ENABLE_ROCM=${TRITON_ENABLE_ROCM}
 
 # install platform specific packages
 RUN --mount=type=secret,id=apt_sources,target=/etc/apt/sources.list.d/nvidia-artifactory-ubuntu.list,required=false \
@@ -340,6 +373,7 @@ RUN --mount=type=secret,id=apt_sources,target=/etc/apt/sources.list.d/nvidia-art
     apt-get update && apt-get install -y --no-install-recommends \
                               curl \
                               gdb \
+                              jq \
                               libarchive-dev \
                               libopencv-core-dev \
                               libopencv-dev \
@@ -385,6 +419,13 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
 # user.
 WORKDIR /opt/tritonserver
 COPY --chown=1000:1000 --from=sdk /workspace/qa/ qa/
+
+# Install identity backend if not already present (ROCm base image may not include it)
+RUN if [ ! -f /opt/tritonserver/backends/identity/libtriton_identity.so ]; then \
+        mkdir -p /opt/tritonserver/backends/identity && \
+        cp qa/L0_lifecycle/libtriton_identity.so \
+            /opt/tritonserver/backends/identity/.; \
+    fi
 
 # Remove CI tests that are meant to run only on build image and
 # install the tritonserver/triton python client APIs.

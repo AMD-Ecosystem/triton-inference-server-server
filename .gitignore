@@ -25,3 +25,6 @@ custom_tokenizer
 
 #migraphx cache for ci
 /ci/migraphx_cache
+
+# generated files
+gen.*

@@ -31,6 +31,46 @@ SERVER_TIMEOUT=${SERVER_TIMEOUT:=120}
 SERVER_LD_PRELOAD=${SERVER_LD_PRELOAD:=""}
 MONITOR_FILE_TIMEOUT=${MONITOR_FILE_TIMEOUT:=10}
 
+# ROCm / repo configuration
+# Normalizes TRITON_ENABLE_ROCM and sets repo org, tags, and cmake arg.
+# When ROCm is enabled:
+#   - core, backend, python_backend, etc. use ROCm org + ROCm repo names
+#   - common and identity_backend stay at upstream triton-inference-server org
+ROCM_ENABLED=$(echo "${TRITON_ENABLE_ROCM:-0}" | tr '[:upper:]' '[:lower:]')
+if [ "$ROCM_ENABLED" = "1" ] || [ "$ROCM_ENABLED" = "on" ] || [ "$ROCM_ENABLED" = "true" ]; then
+    ROCM_ENABLED=true
+    TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="https://github.com/ROCm"}
+    TRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG:="rocm7.2_r25.12"}
+    TRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG:="rocm7.2_r25.12"}
+    TRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG:="main"}
+    TRITON_ROCM_CMAKE_ARG="-DTRITON_ENABLE_ROCM=ON"
+else
+    ROCM_ENABLED=false
+    TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="http://github.com/triton-inference-server"}
+    TRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG:="main"}
+    TRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG:="main"}
+    TRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG:="main"}
+    TRITON_ROCM_CMAKE_ARG=""
+fi
+
+# Returns the correct git clone URL for a Triton repo.
+# On ROCm: repos use https://github.com/ROCm/triton-inference-server-<name>
+#   except common and identity_backend which stay upstream.
+# On CUDA: repos use ${TRITON_REPO_ORGANIZATION}/<name>
+# Usage: $(triton_repo_url backend)
+#        $(triton_repo_url python_backend)
+#        $(triton_repo_url common)
+function triton_repo_url () {
+    local repo_name=$1
+    if [ "$repo_name" = "common" ] || [ "$repo_name" = "identity_backend" ] || [ "$repo_name" = "client" ]; then
+        echo "https://github.com/triton-inference-server/${repo_name}"
+    elif $ROCM_ENABLED; then
+        echo "${TRITON_REPO_ORGANIZATION}/triton-inference-server-${repo_name}"
+    else
+        echo "${TRITON_REPO_ORGANIZATION}/${repo_name}"
+    fi
+}
+
 # Sets WAIT_RET to 0 on success, 1 on failure
 function wait_for_file_str() {
     local file="$1"; shift
