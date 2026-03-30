@@ -20,50 +20,13 @@ In this tutorial, we walk through the steps required to benchmark the performanc
 4. Docker
 
 
-## Model Training on NVIDIA GPU
-1. Pull pytorch container from NGC and start container
-```
-export WORKSPACE=<Your workspace directory on host>
-docker pull nvcr.io/nvidia/pytorch:25.12-py3
-docker run -d --runtime nvidia --gpus all  --cap-add=SYS_PTRACE --ipc=host --privileged=true \
-        --shm-size=128GB --network=host --device=/dev/kfd \
-        --device=/dev/dri --group-add video -it \
-        -v $WORKSPACE:/workspace \
-        --name train_CTR \
-        nvcr.io/nvidia/pytorch:25.12-py3
-```
-1. inside the container, pull reczoo/BARS
-```bash
-cd /workspace
-git clone https://github.com/reczoo/BARS.git
-cd BARS/ranking/ctr/FinalNet/FinalNet_criteo_x4_001
-```
-2. inside the container, uses FuxiCTR to train FinalNet model, FuxiCTR can be insalled either using pip or pull source code
-```bash
-git clone -b v2.2.0 https://github.com/reczoo/FuxiCTR.git
-cd FuxiCTR && pip install -r requirements.txt
-```
-3. inside the container, pull dataset repo
-```bash
-git clone https://github.com/reczoo/Datasets.git
-```
-4. inside the container, Create data directory
-```bash
-cd /workspace/FuxiCTR/model_zoo
-mkdir -p ./data/Criteo/Criteo_x4 && cd ./data/Criteo/Criteo_x4
-wget https://huggingface.co/datasets/reczoo/Criteo_x4/resolve/main/Criteo_x4.zip?download=true
-unzip Criteo_x4.zip
-```
-5. inside the container, data config and model config files are under /workspace/BARS/ranking/ctr/FinalNet/FinalNet_criteo_x4_001/FinalNet_criteo_x4_tuner_config_05 use these config for training FinalNet on Criteo_x4 dataset
-```bash
-cd /workspace/FuxiCTR/model_zoo/FinalNet
+## Model Training
+1. Train FinalNet   
+[How to train FinalNet on Criteo_x4 dataset](#https://github.com/reczoo/BARS/tree/main/ranking/ctr/FinalNet/FinalNet_criteo_x4_001)   
+At the end of training you should see
+![FinalNet training](images/FinalNet_training_result.png)
 
-PYTHONPATH="/workspace/FuxiCTR:$PYTHONPATH" python run_expid.py --config /workspace/BARS/ranking/ctr/FinalNet/FinalNet_criteo_x4_001/FinalNet_criteo_x4_tuner_config_05 --expid FinalNet_criteo_x4_001_041_449ccb21 --gpu 0 > run.log & tail -f run.log
-```
-6. By end of training you should see following AUC and logloss from testing data
-![FinalNet training result](images/FinalNet_training_result.png)
-
-7. inside the container, export model checkpoints to .onnx
+2. Export model checkpoints to .onnx
 ```python
 python export_finalnet_to_onnx.py \\
 --checkpoint /path/to/model.model \\
