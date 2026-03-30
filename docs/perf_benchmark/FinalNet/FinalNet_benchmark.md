@@ -2,22 +2,20 @@
 ## Overview
 [FinalNet](#https://dl.acm.org/doi/10.1145/3539618.3591988) is a click-through rate (CTR) prediction model that achieves state-of-art performance on the Criteo_x4, Avazu_x1, and MovielensLatest_x1 datasets according to the [BARS leaderboard](#https://openbenchmark.github.io/BARS/index.html). 
 
-In this tutorial, we walk through the steps required to benchmark the performance of the FinalNet model on both AMD Instinct MI355X and NVIDIA B200 GPUs. 
+In this tutorial, we walk through the steps required to benchmark the performance of the FinalNet model on AMD Instinct MI300X or MI355X
 
 ## Table of Contents
 - Overview
 - Prerequisites
 - Model Training and Exporting to ONNX
 - Model Config and Deployment on AMD Intrinsic GPUs
-- Model Config and Deployment on NVIDIA GPUs
 - Benchmarking
 - Results
 
 ## Prerequisites
 1. ROCm 7.2 installed on host machine
 2. AMD Intrinsic MI355X or MI300X
-3. NVIDIA B200 or H100
-4. Docker
+3. Docker
 
 
 ## Model Training
@@ -77,46 +75,10 @@ You should see FinalNet loaded successfully after launching tritonserver
 
 ![FinalNet Load Success](images/FinalNet_load_successfully.png)
 
-## Model deployment on NVIDIA H100 or B200 through Triton Inference Server
-1. Pull official Triton Inference Server Container
-```bash
-docker pull nvcr.io/nvidia/tritonserver:25.12-py3
-```
-2. Create model directory on host machine and copy FinalNet onnx checkpoints there
-```bash
-export MODEL_REPOSITORY=<Your model repository directory on host machine>
-mkdir -p {$MODEL_REPOSITORY}/FinalNet_onnx/0
-cp nvidia/config.pbtxt {$MODEL_REPOSITORY}/FinalNet_onnx
-cp model.onnx {$MODEL_REPOSITORY}/FinalNet_onnx/0
-```
-3. Start tritonserver container
-```bash
-docker run \
---gpus=1 --rm --net=host \
--v ${MODEL_REPOSITORY}:/models \
-nvcr.io/nvidia/tritonserver:25.12-py3 tritonserver --model-repository=/models
-```
-
 ## Benchmarking
-We will use [perf_analyzer](#https://github.com/triton-inference-server/perf_analyzer.git) to do benchmarking on end to end performance. This is the same for benchmarking on NVIDIA or AMD machines.
-1. Pull tritonserver sdk docker image
-Open another terminal and start tritonserver SDK container
+
+You can use perf_analyzer or create python script for end-to-end benchmark
+
 ```
-docker run -it --rm --net=host \
-        nvcr.io/nvidia/tritonserver:25.12-py3-sdk \
-        /bin/bash
-```
-2. Run benchmarking with sweeping of concurrency rate
-```bash
 perf_analyzer -m FinalNet_onnx  --input-data=random -b 8192 --concurrency-range 1:72:2
 ```
-
-## Benchmarking Results
-NVIDIA B200 VS AMD MI355X 
-
-![FinalNet_qps_latency_MI355X_B200](images/finalnet_qps_latency_b200_mi355x.png)
-
-NVIDIA H100 VS AMD MI300X  
-
-![FinalNet_qps_latency_MI300X_H100](images/finalnet_qps_latency_curve.png)
-
