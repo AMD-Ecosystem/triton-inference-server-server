@@ -26,6 +26,8 @@
 
 cmake_minimum_required(VERSION 3.31.8)
 
+rocm_setup_version(VERSION 25.12)
+
 project(tritonserver LANGUAGES C CXX)
 
 include(CMakeDependentOption)
