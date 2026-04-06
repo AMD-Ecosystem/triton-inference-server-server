@@ -26,8 +26,6 @@
 
 cmake_minimum_required(VERSION 3.31.8)
 
-rocm_setup_version(VERSION 25.12)
-
 project(tritonserver LANGUAGES C CXX)
 
 include(CMakeDependentOption)
@@ -171,7 +169,12 @@ FetchContent_MakeAvailable(repo-third-party repo-core)
 #
 if(${TRITON_ENABLE_ROCM})
   enable_language(HIP)
-  
+
+  list(APPEND CMAKE_MODULE_PATH "${TRITON_BUILD_ROCM_HOME}/lib/cmake/rocm")
+  find_package(ROCM REQUIRED CONFIG)
+  include(ROCMSetupVersion)
+  rocm_setup_version(VERSION 25.12)
+
   # Read ROCm version
   file(READ "${TRITON_BUILD_ROCM_HOME}/.info/version" ROCM_VERSION_STRING)
   if(ROCM_VERSION_STRING MATCHES "([0-9]+)\\.([0-9]+)\\.([0-9]+)")
