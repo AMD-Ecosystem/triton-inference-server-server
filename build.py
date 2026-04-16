@@ -1719,7 +1719,12 @@ RUN apt-get update \\
       && rm -rf /var/lib/apt/lists/*
 """
     if "vllm" in backends and enable_rocm:
-        df += install_vllm()
+        if FLAGS.linux_distro == "debian":
+            # vLLM is built from scratch in the base image for Debian.
+            pass
+        else:
+            # vLLM engine is installed through a wheel for Ubuntu.
+            df += install_vllm()
     if "tensorrtllm" in backends or ("vllm" in backends and not enable_rocm):
         df += """
 ENV TRITON_CUDACRT_PATH=/usr/local/cuda/include \\
@@ -2297,63 +2302,16 @@ def tensorrtllm_postbuild(cmake_script, repo_install_dir, tensorrtllm_be_dir):
     )
 
 
-def flashattn_build(cmake_script, build_dir):
-    """Build ROCm flash-attention and xformers for vLLM backend."""
-    FA_BRANCH = "3d2b6f5"
-    flshattn_dir = os.path.join(build_dir, "flash-attention")
-    cmake_script.cmd("git clone https://github.com/ROCmSoftwarePlatform/flash-attention.git")
-    cmake_script.cwd(flshattn_dir)
-    cmake_script.cmd(["git", "checkout", FA_BRANCH])
-    cmake_script.cmd('export GPU_ARCHS="gfx90a;gfx940;gfx941;gfx942"')
-    cmake_script.cmd("git submodule update --init")
-    cmake_script.cmd("python3 setup.py install")
-    cmake_script.cwd(build_dir)
-    cmake_script.cmd("python3 -m pip install xformers==0.0.23 --no-deps")
-
-
 def install_vllm():
-    """Return Dockerfile fragment to install vLLM from source for ROCm."""
-    vllm_version = DEFAULT_TRITON_VERSION_MAP.get("vllm_version", "0.11.1")
+    """Return Dockerfile fragment to install vLLM for ROCm."""
     df = """
-# Install vLLM from source for ROCm
-ARG FA_GFX_ARCHS="gfx90a;gfx942"
-ARG FA_BRANCH="3d2b6f5"
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-        curl ca-certificates sudo bzip2 libx11-6 build-essential wget unzip tmux \\
-    && rm -rf /var/lib/apt/lists/*
-
-RUN python3 -m pip install --upgrade pip
-RUN python3 -m pip install --no-cache-dir fastapi ninja tokenizers pandas
-
-ENV LLVM_SYMBOLIZER_PATH=/opt/rocm/llvm/bin/llvm-symbolizer
-ENV PATH=$PATH:/opt/rocm/bin:/libtorch/bin:
-ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/rocm/lib/:/libtorch/lib:
-ENV CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/libtorch/include:/libtorch/include/torch/csrc/api/include/:/opt/rocm/include:
-
-RUN mkdir -p /tmp/vllm_build && cd /tmp/vllm_build \\
-    && git clone https://github.com/ROCmSoftwarePlatform/flash-attention.git \\
-    && cd flash-attention \\
-    && git checkout ${FA_BRANCH} \\
-    && git submodule update --init \\
-    && export GPU_ARCHS=${FA_GFX_ARCHS} \\
-    && python3 setup.py install \\
-    && cd /tmp/vllm_build \\
-    && python3 -m pip install xformers==0.0.23 --no-deps
-
-RUN cd /tmp/vllm_build \\
-    && wget https://github.com/vllm-project/vllm/archive/refs/tags/v{vllm_version}.tar.gz -O vllm.tar.gz \\
-    && tar xvf vllm.tar.gz \\
-    && cd vllm-{vllm_version} \\
-    && pip3 install -r requirements.txt \\
-    && bash patch_xformers.rocm.sh 2>/dev/null || true \\
-    && patch /opt/rocm/include/hip/amd_detail/amd_hip_bf16.h rocm_patch/rocm_bf16.patch 2>/dev/null || true \\
-    && python3 setup.py install \\
-    && cd / && rm -rf /tmp/vllm_build
-
-RUN python3 -m pip install --no-cache-dir "ray[all]"
-""".format(
-        vllm_version=vllm_version
-    )
+# Install vLLM pre-built wheel for ROCm
+RUN apt-get update && apt-get install -y --no-install-recommends libopenmpi-dev && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir uv
+RUN uv pip install --system --no-cache --break-system-packages vllm --pre \\
+        --extra-index-url https://wheels.vllm.ai/rocm/nightly/rocm721 \\
+        --upgrade
+"""
     return df
 
 
@@ -2368,13 +2326,8 @@ def backend_build(
     components,
     library_paths,
 ):
-    vllm_rocm = be == "vllm" and FLAGS.enable_rocm
-    if vllm_rocm:
-        repo_build_dir = os.path.join(build_dir, be)
-        repo_install_dir = None  # not used for vllm+rocm
-    else:
-        repo_build_dir = os.path.join(build_dir, be, "build")
-        repo_install_dir = os.path.join(build_dir, be, "install")
+    repo_build_dir = os.path.join(build_dir, be, "build")
+    repo_install_dir = os.path.join(build_dir, be, "install")
 
     cmake_script.commentln(8)
     cmake_script.comment(f"'{be}' backend")
@@ -2383,30 +2336,6 @@ def backend_build(
     cmake_script.mkdir(build_dir)
     cmake_script.cwd(build_dir)
 
-    if vllm_rocm:
-        cmake_script.cmd("export LLVM_SYMBOLIZER_PATH=/opt/rocm/llvm/bin/llvm-symbolizer")
-        cmake_script.cmd("export PATH=$PATH:/opt/rocm/bin:/libtorch/bin:")
-        cmake_script.cmd(
-            "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/rocm/lib/:/libtorch/lib:"
-        )
-        cmake_script.cmd(
-            "export CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/libtorch/include:/libtorch/include/torch/csrc/api/include/:/opt/rocm/include:"
-        )
-        flashattn_build(cmake_script, build_dir)
-        cmake_script.cmd("git clone https://github.com/vllm-project/vllm.git vllm")
-        cmake_script.cwd(repo_build_dir)
-        cmake_script.cmd("bash patch_xformers.rocm.sh")
-        cmake_script.cmd("pip3 install -U -r requirements-rocm.txt")
-        cmake_script.cmd(
-            "patch /opt/rocm/include/hip/amd_detail/amd_hip_bf16.h rocm_patch/rocm_bf16.patch || true"
-        )
-        cmake_script.cmd("python setup.py install")
-        cmake_script.cwd(build_dir)
-        cmake_script.comment()
-        cmake_script.comment(f"end '{be}' backend")
-        cmake_script.commentln(8)
-        cmake_script.blankln()
-        return
     if be == "tensorrtllm":
         repository_name = "TensorRT-LLM"
         cmake_script.gitclone(repository_name, tag, be, github_organization)
@@ -2531,7 +2460,10 @@ def backend_clone(
     clone_script.comment()
     clone_script.mkdir(build_dir)
     clone_script.cwd(build_dir)
-    clone_script.gitclone(backend_repo(be), tag, be, github_organization)
+    repo = backend_repo(be)
+    if be == "vllm" and FLAGS.enable_rocm:
+        repo = "triton-inference-server-vllm_backend"
+    clone_script.gitclone(repo, tag, be, github_organization)
 
     repo_target_dir = os.path.join(install_dir, "backends")
     clone_script.mkdir(repo_target_dir)
@@ -3661,6 +3593,9 @@ if __name__ == "__main__":
                 )
 
             if be == "vllm":
+                if FLAGS.enable_rocm:
+                    github_organization = "https://github.com/ROCm"
+                    backends[be] = "rocm7.2_r25.12"
                 backend_clone(
                     be,
                     cmake_script,
@@ -3669,18 +3604,6 @@ if __name__ == "__main__":
                     script_install_dir,
                     github_organization,
                 )
-                if FLAGS.enable_rocm:
-                    backend_build(
-                        be,
-                        cmake_script,
-                        backends[be],
-                        script_build_dir,
-                        script_install_dir,
-                        github_organization,
-                        images,
-                        components,
-                        library_paths,
-                    )
             else:
                 backend_build(
                     be,

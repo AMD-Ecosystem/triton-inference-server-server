@@ -23,6 +23,10 @@ function(hipify cuda_dir in_excluded_file_patterns out_generated_cc_files out_ge
     "${REPO_ROOT}/*.cu"
    )
 
+  # Exclude qa/ and build/ directories from hipification
+  list(FILTER srcs EXCLUDE REGEX ".*/qa/.*")
+  list(FILTER srcs EXCLUDE REGEX ".*/build/.*")
+
   # do exclusion
   set(excluded_file_patterns ${${in_excluded_file_patterns}})
   #list(TRANSFORM excluded_file_patterns PREPEND "${REPO_ROOT}/${cuda_dir}/")
