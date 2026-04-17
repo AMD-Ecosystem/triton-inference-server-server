@@ -1555,9 +1555,13 @@ ENV UCX_MEM_EVENTS no
 # Install PyTorch ROCm wheel in the production container for runtime libs
 RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/rocm7.2
 
-# Set LD_LIBRARY_PATH so libtriton_pytorch.so can find libtorch_hip.so at runtime
-ARG PYVER=3.12
-ENV LD_LIBRARY_PATH /usr/local/lib/python${PYVER}/dist-packages/torch/lib:${LD_LIBRARY_PATH}
+# Add PyTorch libs to linker search path:
+#   ldconfig  — indexes versioned .so files (e.g. libtorch_hip.so.1)
+#   LD_LIBRARY_PATH — needed for unversioned .so files (e.g. libgomp.so)
+RUN TORCH_LIB=$(python3 -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))") \
+    && echo "$TORCH_LIB" > /etc/ld.so.conf.d/pytorch.conf && ldconfig \
+    && ln -sf "$TORCH_LIB" /opt/pytorch_lib
+ENV LD_LIBRARY_PATH /opt/pytorch_lib:${LD_LIBRARY_PATH}
 """
         else:
             df += """
