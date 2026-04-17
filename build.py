@@ -638,8 +638,25 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
 
 def pytorch_cmake_args(images):
     if FLAGS.enable_rocm:
-        image = images["gpu-base"]
-    elif "pytorch" in images:
+        cargs = [
+            cmake_backend_arg(
+                "pytorch", "CMAKE_PREFIX_PATH", "STRING",
+                "`python3 -c 'import torch;print(torch.utils.cmake_prefix_path)'`;/opt/rocm"
+            ),
+            cmake_backend_arg(
+                "pytorch", "TRITON_HIPIFY_PERL", "STRING",
+                "/opt/rocm/bin/hipify-perl"
+            ),
+            cmake_backend_arg(
+                "pytorch", "TRITON_ROCM_HOME", "PATH",
+                "/opt/rocm"
+            ),
+            cmake_backend_enable("pytorch", "TRITON_PYTORCH_ENABLE_TORCHVISION", False),
+            cmake_backend_enable("pytorch", "TRITON_PYTORCH_NVSHMEM", False),
+        ]
+        return cargs
+
+    if "pytorch" in images:
         image = images["pytorch"]
     else:
         image = "nvcr.io/nvidia/pytorch:{}-py3".format(FLAGS.upstream_container_version)
@@ -653,19 +670,6 @@ def pytorch_cmake_args(images):
         if FLAGS.enable_gpu:
             cargs.append(
                 cmake_backend_enable("pytorch", "TRITON_PYTORCH_ENABLE_TORCHTRT", True)
-            )
-        elif FLAGS.enable_rocm:
-            cargs.append(
-                cmake_backend_arg(
-                    "pytorch", "CMAKE_PREFIX_PATH", "STRING",
-                    "`python3 -c 'import torch;print(torch.utils.cmake_prefix_path)'`"
-                )
-            )
-            cargs.append(
-                cmake_backend_arg(
-                    "pytorch", "CMAKE_CXX_COMPILER:PATH", "STRING",
-                    "/opt/rocm-7.1.0/bin/amdclang++"
-                )
             )
         cargs.append(
             cmake_backend_enable("pytorch", "TRITON_ENABLE_NVTX", FLAGS.enable_nvtx)
@@ -1336,6 +1340,19 @@ ENV ROCM_PATH=/opt/rocm
 ENV HIP_PATH=/opt/rocm
 ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
 """
+        # Install PyTorch ROCm wheel for the pytorch backend build
+        pytorch_requested = any(b.split(":")[0] == "pytorch" for b in FLAGS.backend)
+        if pytorch_requested:
+            df += """
+# Install PyTorch for ROCm (needed by pytorch backend build)
+RUN pip3 install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/rocm7.2
+
+# Create missing generated header required by PyTorch ROCm wheel
+RUN TORCH_INC=$(python3 -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'include'))") && \\
+    mkdir -p "${TORCH_INC}/c10/cuda/impl" && \\
+    printf '#pragma once\\n#define C10_CUDA_BUILD_SHARED_LIBS\\n' \\
+      > "${TORCH_INC}/c10/cuda/impl/cuda_cmake_macros.h"
+"""
 
     df += """
 ENV TRITON_SERVER_VERSION ${TRITON_VERSION}
@@ -1535,21 +1552,12 @@ ENV UCX_MEM_EVENTS no
     if "pytorch" in backends:
         if enable_rocm:
             df += """
-ENV LD_LIBRARY_PATH /opt/ucx/lib/:${LD_LIBRARY_PATH}
-RUN apt-get update && \\
-    apt-get install -y --no-install-recommends patchelf
+# Install PyTorch ROCm wheel in the production container for runtime libs
+RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/rocm7.2
 
-ARG DOCKER_IMAGE_BLAS_LIB_PATH=/opt/conda/envs/py_3.10/lib
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_gnu_thread.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_def.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_core.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_def.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_gnu_thread.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_avx2.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_core.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_avx2.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_gnu_thread.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_avx512.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_core.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_avx512.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_gnu_thread.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_vml_def.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_intel_thread.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_vml_def.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_core.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_vml_def.so.1
-RUN patchelf --add-needed ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_intel_lp64.so.1 ${DOCKER_IMAGE_BLAS_LIB_PATH}/libmkl_intel_thread.so.1
+# Set LD_LIBRARY_PATH so libtriton_pytorch.so can find libtorch_hip.so at runtime
+ARG PYVER=3.12
+ENV LD_LIBRARY_PATH /usr/local/lib/python${PYVER}/dist-packages/torch/lib:${LD_LIBRARY_PATH}
 """
         else:
             df += """
@@ -2360,6 +2368,14 @@ def backend_build(
             "triton-inference-server-python_backend",
             "rocm7.2_r25.12",
             "python",
+            "https://github.com/ROCm",
+        )
+    elif be == "pytorch" and FLAGS.enable_rocm:
+        # Use AMD-specific pytorch_backend fork for ROCm support
+        cmake_script.gitclone(
+            "triton-inference-server-pytorch_backend",
+            "rocm7.2_r25.12",
+            "pytorch",
             "https://github.com/ROCm",
         )
     elif be == "tensorflow" and FLAGS.enable_rocm:
@@ -3281,25 +3297,17 @@ if __name__ == "__main__":
             )
             backends["python"] = backends["vllm"]
 
-    # ROCm: inform about backends other than onnxruntime and python
+    # ROCm: warn about backends that are not yet enabled
     if FLAGS.enable_rocm and backends:
         backend_names = list(backends.keys())
-        other = [b for b in backend_names if b not in ("onnxruntime", "python")]
-        if other:
-            in_progress = [b for b in other if b in ("vllm", "pytorch", "tensorflow")]
-            not_enabled = [b for b in other if b not in ("vllm", "pytorch", "tensorflow")]
-            if in_progress:
-                print(
-                    "Backend(s) {} are in progress of upgrading for ROCm.".format(
-                        ", ".join(in_progress)
-                    )
+        rocm_enabled = ("onnxruntime", "python", "pytorch", "vllm", "tensorflow")
+        not_enabled = [b for b in backend_names if b not in rocm_enabled]
+        if not_enabled:
+            print(
+                "Backend(s) {} are not yet enabled for ROCm.".format(
+                    ", ".join(not_enabled)
                 )
-            if not_enabled:
-                print(
-                    "Backend(s) {} are not yet enabled for ROCm.".format(
-                        ", ".join(not_enabled)
-                    )
-                )
+            )
 
     secrets = dict(getattr(FLAGS, "build_secret", []))
     if secrets:
