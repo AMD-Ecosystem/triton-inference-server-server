@@ -918,7 +918,7 @@ def tensorflow_rocm_cmake_args():
         cmake_backend_arg("tensorflow",
             "TRITON_TENSORFLOW_DOCKER_IMAGE",
             None,
-            "rocm/tensorflow:rocm7.2-py3.10-tf2.20-dev"
+            "rocm/tensorflow:rocm7.2.3-py3.10-tf2.20-dev"
         )
     )
     return cargs
@@ -1895,12 +1895,12 @@ RUN tar -xvf /opt/_internal/static-libs-for-embedding-only.tar.xz \\
 
 def get_base_image_rocm_debian():
     """Return base image for ROCm Debian"""
-    return "localhost/debian12_rocm7.2"
+    return "localhost/debian12_rocm7.2.3"
 
 
 def get_base_image_rocm_ubuntu():
     """Return base image for ROCm Ubuntu"""
-    return "localhost/ubuntu24.04_rocm7.2"
+    return "localhost/ubuntu24.04_rocm7.2.3"
 
 
 def create_build_dockerfiles(
@@ -2362,7 +2362,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-onnxruntime_backend",
-                "rocm7.2_r25.12",
+                "rocm7.2.3_r25.12",
                 be,
                 "https://github.com/ROCm",
             )
@@ -2385,7 +2385,7 @@ def backend_build(
     elif be == "tensorflow" and FLAGS.enable_rocm:
         cmake_script.gitclone(
             "triton-inference-server-tensorflow_backend", 
-            "rocm7.2_r24.03", 
+            "rocm7.2.3_r24.03", 
             "tensorflow_backend", 
             "https://github.com/ROCm"
         )
@@ -3121,7 +3121,7 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="develop",
+        default="release/rocm-rel-7.2",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
