@@ -74,7 +74,7 @@ DEFAULT_TRITON_VERSION_MAP = {
     "release_version": "2.64.0",
     "triton_container_version": "25.12",
     "upstream_container_version": "25.12",
-    "ort_version": "1.23.2",
+    "ort_version": "1.27.0",
     "ort_openvino_version": "2025.4.0",
     "standalone_openvino_version": "2025.4.0",
     "dcgm_version": "4.4.2-1",
@@ -733,6 +733,11 @@ def onnxruntime_cmake_args(images, library_paths):
         #         "onnxruntime", "TRITON_ENABLE_ONNXRUNTIME_ROCM", True
         #     )
         # )
+        # MIGraphX support is provided by the out-of-tree plugin EP
+        # (onnxruntime-ep-amdgpu -> libmigraphx-ep.so). Enabling this flag builds
+        # and stages the plugin and compiles the backend's MIGraphX accelerator
+        # handling (which registers/appends the plugin at runtime). The built-in
+        # MIGraphX EP is no longer compiled into ONNX Runtime core.
         cargs.append(
             cmake_backend_enable(
                 "onnxruntime", "TRITON_ENABLE_ONNXRUNTIME_MIGRAPHX", True
@@ -776,6 +781,23 @@ def onnxruntime_cmake_args(images, library_paths):
                 "TRITON_BUILD_MIGRAPHX_BRANCH",
                 None,
                 FLAGS.migraphx_branch,
+            )
+        )
+        # MIGraphX plugin EP (onnxruntime-ep-amdgpu) source for build-from-source.
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_MIGRAPHX_EP_REPO",
+                None,
+                FLAGS.migraphx_ep_repo,
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_MIGRAPHX_EP_BRANCH",
+                None,
+                FLAGS.migraphx_ep_branch,
             )
         )
 
@@ -2391,16 +2413,20 @@ def backend_build(
         # ROCm ONNX Runtime backend: use local dir from --onnxruntime-backend-dir if set, else clone
         if getattr(FLAGS, "onnxruntime_backend_dir", None):
             cmake_script.comment(
-                "Using local ONNX Runtime backend from --onnxruntime-backend-dir (mounted at {}/onnxruntime)".format(
-                    build_dir
+                "Using local ONNX Runtime backend from --onnxruntime-backend-dir ({})".format(
+                    FLAGS.onnxruntime_backend_dir
                 )
+            )
+            cmake_script.cmd("rm -rf onnxruntime")
+            cmake_script.cmd(
+                "cp -r {} onnxruntime".format(FLAGS.onnxruntime_backend_dir)
             )
         else:
             cmake_script.gitclone(
-                "triton-inference-server-onnxruntime_backend",
-                "rocm7.2.3_r25.12",
+                "onnxruntime_backend",
+                "plugin-ep-swap",
                 be,
-                "https://github.com/ROCm",
+                "https://github.com/TedThemistokleous/",
             )
         cmake_script.comment(
             "Patch ONNX Runtime ROCm backend templates so MIGraphX deb install pulls required ROCm deps"
@@ -3204,7 +3230,11 @@ if __name__ == "__main__":
         "--ort-branch",
         required=False,
         type=str,
+<<<<<<< HEAD
         default="rocm7.14_internal_testing",
+=======
+        default="v1.27.0_vendorid",
+>>>>>>> b78a4e4f (Update build.py to take pluggin ep)
         help="ONNX Runtime (ROCm) git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
@@ -3218,8 +3248,33 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="develop",
+        default="gather_changes",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--onnxruntime-backend-dir",
+        required=False,
+        type=str,
+        default=None,
+        help="Path to a local ROCm onnxruntime_backend checkout to build "
+        "instead of cloning. When set, this directory is copied into the build "
+        "tree in place of the upstream clone. Used by onnxruntime backend (ROCm).",
+    )
+    parser.add_argument(
+        "--migraphx-ep-repo",
+        required=False,
+        type=str,
+        default="https://github.com/onnxruntime/onnxruntime-ep-amdgpu.git",
+        help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git repo URL when "
+        "building from source. Produces libmigraphx-ep.so. Used by onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--migraphx-ep-branch",
+        required=False,
+        type=str,
+        default="main",
+        help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git branch when "
+        "building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--standalone-openvino-version",
