@@ -3223,19 +3223,19 @@ if __name__ == "__main__":
         "--ort-repo",
         required=False,
         type=str,
-        default="https://github.com/ROCm/onnxruntime",
-        help="ONNX Runtime (ROCm) git repo URL when building from source. Used by onnxruntime backend.",
+        default="https://github.com/microsoft/onnxruntime",
+        help="ONNX Runtime git repo URL for source builds. NOTE: the ROCm/MIGraphX "
+        "plugin-EP path does NOT build ONNX Runtime core from source; it fetches the "
+        "prebuilt upstream release tarball selected by --ort-version. Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--ort-branch",
         required=False,
         type=str,
-<<<<<<< HEAD
-        default="rocm7.14_internal_testing",
-=======
-        default="v1.27.0_vendorid",
->>>>>>> b78a4e4f (Update build.py to take pluggin ep)
-        help="ONNX Runtime (ROCm) git branch when building from source. Used by onnxruntime backend.",
+        default="v1.29.0",
+        help="ONNX Runtime git branch/tag for source builds. NOTE: unused by the "
+        "ROCm/MIGraphX plugin-EP path, which uses the prebuilt release tarball "
+        "(see --ort-version). Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--migraphx-repo",
