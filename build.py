@@ -92,6 +92,11 @@ OVERRIDE_BACKEND_CMAKE_FLAGS = {}
 
 THIS_SCRIPT_DIR = os.path.dirname(os.path.abspath(getsourcefile(lambda: 0)))
 
+# In-container bind-mount target for a local ONNX Runtime backend source tree
+# passed via --onnxruntime-backend-dir. container_build() mounts the host dir
+# here and backend_build() copies from it during a container build.
+ONNXRUNTIME_BACKEND_CONTAINER_SRC = "/workspace/onnxruntime_backend_src"
+
 
 def log(msg, force=False):
     if force or not FLAGS.quiet:
@@ -2129,6 +2134,27 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             )
             runargs += ["-v", "{}:/tmp/tritonbuild".format(tritonbuild_cache)]
 
+        # Optional: bind-mount a local ONNX Runtime backend source tree so
+        # --onnxruntime-backend-dir can build from uncommitted local changes
+        # instead of a git clone. The image is built with "COPY . ." from the
+        # server repo, so the host backend dir is otherwise invisible inside the
+        # container. backend_build() copies from this mount path. NOTE: the path
+        # is resolved on the Docker host, so this requires running build.py on
+        # the host (not docker-in-docker).
+        if (
+            getattr(FLAGS, "onnxruntime_backend_dir", None)
+            and target_platform() != "windows"
+        ):
+            onnxruntime_backend_hostdir = os.path.abspath(
+                FLAGS.onnxruntime_backend_dir
+            )
+            runargs += [
+                "-v",
+                "{}:{}:ro".format(
+                    onnxruntime_backend_hostdir, ONNXRUNTIME_BACKEND_CONTAINER_SRC
+                ),
+            ]
+
         if not FLAGS.no_container_interactive:
             runargs += ["-it"]
 
@@ -2418,8 +2444,17 @@ def backend_build(
                 )
             )
             cmake_script.cmd("rm -rf onnxruntime")
+            # For a container build the cmake_build script runs inside the
+            # tritonserver_buildbase container, where the host path is not
+            # visible. container_build() bind-mounts the host directory at
+            # ONNXRUNTIME_BACKEND_CONTAINER_SRC, so copy from there. For a
+            # --no-container-build (host) build, copy directly from the host path.
+            if not FLAGS.no_container_build:
+                onnxruntime_backend_src = ONNXRUNTIME_BACKEND_CONTAINER_SRC
+            else:
+                onnxruntime_backend_src = FLAGS.onnxruntime_backend_dir
             cmake_script.cmd(
-                "cp -r {} onnxruntime".format(FLAGS.onnxruntime_backend_dir)
+                "cp -r {} onnxruntime".format(onnxruntime_backend_src)
             )
         else:
             cmake_script.gitclone(
@@ -3248,7 +3283,7 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="gather_changes",
+        default="develop",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
