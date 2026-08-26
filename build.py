@@ -3307,7 +3307,7 @@ if __name__ == "__main__":
         "--migraphx-ep-branch",
         required=False,
         type=str,
-        default="main",
+        default="reduce_compute_io_overhead",
         help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git branch when "
         "building from source. Used by onnxruntime backend.",
     )
