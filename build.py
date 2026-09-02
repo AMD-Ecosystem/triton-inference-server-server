@@ -35,6 +35,7 @@ import platform
 import stat
 import subprocess
 import sys
+import time
 from inspect import getsourcefile
 
 import distro
@@ -788,6 +789,53 @@ def onnxruntime_cmake_args(images, library_paths):
                 FLAGS.migraphx_branch,
             )
         )
+        # MIGraphX provisioning mode: 'source' (build --migraphx-branch, reusing
+        # a prebuilt rocMLIR) or 'package' (pull prebuilt amdrocm-migraphx debs
+        # and skip the MIGraphX/rocMLIR source builds).
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_MIGRAPHX_BUILD_MODE",
+                None,
+                FLAGS.migraphx_build_mode,
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_MIGRAPHX_PACKAGE_URL",
+                None,
+                FLAGS.migraphx_package_url,
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_MIGRAPHX_PACKAGE_VERSION",
+                None,
+                FLAGS.migraphx_package_version,
+            )
+        )
+        # rocMLIR (librockCompiler) source. Prebuilt once into its own cached
+        # Docker layer so the expensive LLVM/MLIR compile is decoupled from the
+        # MIGraphX/EP source; MIGraphX links the prebuilt rocMLIR instead of
+        # rebuilding it. The commit must match MIGraphX's requirements.txt pin.
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_ROCMLIR_REPO",
+                None,
+                FLAGS.rocmlir_repo,
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_ROCMLIR_COMMIT",
+                None,
+                FLAGS.rocmlir_commit,
+            )
+        )
         # MIGraphX plugin EP (onnxruntime-ep-amdgpu) source for build-from-source.
         cargs.append(
             cmake_backend_arg(
@@ -803,6 +851,22 @@ def onnxruntime_cmake_args(images, library_paths):
                 "TRITON_BUILD_MIGRAPHX_EP_BRANCH",
                 None,
                 FLAGS.migraphx_ep_branch,
+            )
+        )
+        # Cache-bust token for just the MIGraphX plugin EP (onnxruntime-ep-amdgpu)
+        # Docker build stage. A fresh value per invocation makes Docker rebuild only
+        # the EP (picking up new commits on its branch) while reusing the cached
+        # MIGraphX-from-source and prebuilt ONNX Runtime core layers. Pin
+        # TRITON_BUILD_MIGRAPHX_EP_CACHE_BUST in the environment to a fixed value to
+        # also cache the EP layer across builds.
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_MIGRAPHX_EP_CACHE_BUST",
+                None,
+                os.getenv(
+                    "TRITON_BUILD_MIGRAPHX_EP_CACHE_BUST", str(int(time.time()))
+                ),
             )
         )
 
@@ -3285,6 +3349,54 @@ if __name__ == "__main__":
         type=str,
         default="develop",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--migraphx-build-mode",
+        required=False,
+        type=str,
+        choices=["source", "package"],
+        default="source",
+        help="How to provision MIGraphX for the ROCm build. 'source' builds "
+        "--migraphx-branch from source, reusing a prebuilt rocMLIR (no LLVM "
+        "recompile). 'package' pulls prebuilt amdrocm-migraphx packages and "
+        "skips the MIGraphX/rocMLIR source builds entirely. Used by onnxruntime "
+        "backend.",
+    )
+    parser.add_argument(
+        "--migraphx-package-url",
+        required=False,
+        type=str,
+        default="https://rocm.frameworks.amd.com/deb-multi-arch/amdrocm-migraphx/pool/main",
+        help="Base URL of the prebuilt amdrocm-migraphx .deb pool (used when "
+        "--migraphx-build-mode=package). Used by onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--migraphx-package-version",
+        required=False,
+        type=str,
+        default="2.17.0-3.py311",
+        help="Version tag of the prebuilt amdrocm-migraphx packages (used when "
+        "--migraphx-build-mode=package). Must match the base image ROCm train "
+        "(e.g. 2.17.0 => rocm10.0.0) and Python (py311 on Debian 12). Used by "
+        "onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--rocmlir-repo",
+        required=False,
+        type=str,
+        default="https://github.com/ROCm/rocMLIR.git",
+        help="rocMLIR git repo URL. rocMLIR (librockCompiler) is prebuilt once in "
+        "its own cached Docker layer and MIGraphX links it instead of rebuilding "
+        "LLVM/MLIR from source. Used by onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--rocmlir-commit",
+        required=False,
+        type=str,
+        default="2e1e7abf4ec789e74e49e42018f852ea66e5ef85",
+        help="rocMLIR git commit to prebuild. MUST match the ROCm/rocMLIR@<sha> "
+        "pin in MIGraphX's requirements.txt for ABI compatibility. Used by "
+        "onnxruntime backend.",
     )
     parser.add_argument(
         "--onnxruntime-backend-dir",
