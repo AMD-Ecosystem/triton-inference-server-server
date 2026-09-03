@@ -2021,7 +2021,7 @@ LABEL com.nvidia.build.ref={}
 
 def get_base_image_rocm_debian():
     """Return base image for ROCm Debian"""
-    return "localhost/debian12_rocm7.14.0"
+    return "localhost/debian12_rocm10.0.0"
 
 
 def get_base_image_rocm_ubuntu():
@@ -3366,7 +3366,7 @@ if __name__ == "__main__":
         "--migraphx-package-url",
         required=False,
         type=str,
-        default="https://rocm.frameworks.amd.com/deb-multi-arch/amdrocm-migraphx/pool/main",
+        default="https://stable.repo.amd.com/rocm/migraphx/packages/debian12/pool/main",
         help="Base URL of the prebuilt amdrocm-migraphx .deb pool (used when "
         "--migraphx-build-mode=package). Used by onnxruntime backend.",
     )
@@ -3374,10 +3374,10 @@ if __name__ == "__main__":
         "--migraphx-package-version",
         required=False,
         type=str,
-        default="2.17.0-3.py311",
+        default="2.17.0+rocm10.0.0",
         help="Version tag of the prebuilt amdrocm-migraphx packages (used when "
         "--migraphx-build-mode=package). Must match the base image ROCm train "
-        "(e.g. 2.17.0 => rocm10.0.0) and Python (py311 on Debian 12). Used by "
+        "(e.g. 2.17.0 => rocm10.0.0) and Debian release (debian12). Used by "
         "onnxruntime backend.",
     )
     parser.add_argument(
