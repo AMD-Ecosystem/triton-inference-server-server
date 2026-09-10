@@ -11,21 +11,22 @@ function(auto_set_source_files_hip_language)
   endforeach()
 endfunction()
 
-# cuda_dir must be relative to REPO_ROOT
+# cuda_dir must be relative to REPO_ROOT. Glob only that tree so an in-source
+# build dir (e.g. build-rocm/) is never hipified.
 function(hipify cuda_dir in_excluded_file_patterns out_generated_cc_files out_generated_cu_files)
   set(hipify_tool ${REPO_ROOT}/src/amd_hipify.py)
   #message(FATAL_ERROR "Tool is ${hipify_tool}")
 
    file(GLOB_RECURSE srcs CONFIGURE_DEPENDS
-    "${REPO_ROOT}/*.h"
-    "${REPO_ROOT}/*.cc"
-    "${REPO_ROOT}/*.cuh"
-    "${REPO_ROOT}/*.cu"
+    "${REPO_ROOT}/${cuda_dir}/*.h"
+    "${REPO_ROOT}/${cuda_dir}/*.cc"
+    "${REPO_ROOT}/${cuda_dir}/*.cuh"
+    "${REPO_ROOT}/${cuda_dir}/*.cu"
    )
 
-  # Exclude qa/ and build/ directories from hipification
-  list(FILTER srcs EXCLUDE REGEX ".*/qa/.*")
-  list(FILTER srcs EXCLUDE REGEX ".*/build/.*")
+  list(FILTER srcs EXCLUDE REGEX "/test/")
+  list(FILTER srcs EXCLUDE REGEX "/python/")
+  list(FILTER srcs EXCLUDE REGEX "/amdgpu/")
 
   # do exclusion
   set(excluded_file_patterns ${${in_excluded_file_patterns}})
