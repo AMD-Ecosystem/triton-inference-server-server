@@ -39,9 +39,9 @@ MONITOR_FILE_TIMEOUT=${MONITOR_FILE_TIMEOUT:=10}
 ROCM_ENABLED=$(echo "${TRITON_ENABLE_ROCM:-0}" | tr '[:upper:]' '[:lower:]')
 if [ "$ROCM_ENABLED" = "1" ] || [ "$ROCM_ENABLED" = "on" ] || [ "$ROCM_ENABLED" = "true" ]; then
     ROCM_ENABLED=true
-    TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="https://github.com/ROCm"}
-    TRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG:="rocm7.2_r25.12"}
-    TRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG:="rocm7.2_r25.12"}
+    TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="https://github.com/AMD-Ecosystem"}
+    TRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG:="rocm10.0.0_r26.09"}
+    TRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG:="rocm10.0.0_r26.09"}
     TRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG:="main"}
     TRITON_ROCM_CMAKE_ARG="-DTRITON_ENABLE_ROCM=ON"
 else
@@ -54,7 +54,7 @@ else
 fi
 
 # Returns the correct git clone URL for a Triton repo.
-# On ROCm: repos use https://github.com/ROCm/triton-inference-server-<name>
+# On ROCm: repos use https://github.com/AMD-Ecosystem/triton-inference-server-<name>
 #   except common and identity_backend which stay upstream.
 # On CUDA: repos use ${TRITON_REPO_ORGANIZATION}/<name>
 # Usage: $(triton_repo_url backend)

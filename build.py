@@ -2412,25 +2412,25 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-onnxruntime_backend",
-                "rocm7.2.3_r25.12",
+                "rocm10.0.0_r26.09",
                 be,
-                "https://github.com/ROCm",
+                "https://github.com/AMD-Ecosystem",
             )
     elif be == "python" and FLAGS.enable_rocm:
         # Use AMD-specific python_backend fork for ROCm support
         cmake_script.gitclone(
             "triton-inference-server-python_backend",
-            "rocm7.2_r25.12",
+            "rocm10.0.0_r26.09",
             "python",
-            "https://github.com/ROCm",
+            "https://github.com/AMD-Ecosystem",
         )
     elif be == "pytorch" and FLAGS.enable_rocm:
         # Use AMD-specific pytorch_backend fork for ROCm support
         cmake_script.gitclone(
             "triton-inference-server-pytorch_backend",
-            "rocm7.2_r25.12",
+            "rocm10.0.0_r26.09",
             "pytorch",
-            "https://github.com/ROCm",
+            "https://github.com/AMD-Ecosystem",
         )
     elif be == "tensorflow" and FLAGS.enable_rocm:
         cmake_script.gitclone(
@@ -3499,13 +3499,13 @@ if __name__ == "__main__":
             fail(str(e))
 
     # Initialize map of common components and repo-tag for each.
-    # ROCm builds use ROCm org repos and tags (triton-inference-server-core, triton-inference-server-backend, triton-inference-server-third_party).
+    # ROCm builds use AMD-Ecosystem forks (triton-inference-server-core, backend, third_party).
     if FLAGS.enable_rocm:
         components = {
             "common": default_repo_tag,
-            "core": "rocm7.2_r25.12",      # https://github.com/ROCm/triton-inference-server-core
-            "backend": "rocm7.2_r25.12",   # https://github.com/ROCm/triton-inference-server-backend
-            "thirdparty": "rocm7.2_r25.12",  # https://github.com/ROCm/triton-inference-server-third_party
+            "core": "rocm10.0.0_r26.09",  # https://github.com/AMD-Ecosystem/triton-inference-server-core
+            "backend": "rocm10.0.0_r26.09",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
+            "thirdparty": "rocm10.0.0_r26.09",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
         }
     else:
         components = {
@@ -3645,8 +3645,8 @@ if __name__ == "__main__":
 
             if be == "vllm":
                 if FLAGS.enable_rocm:
-                    github_organization = "https://github.com/ROCm"
-                    backends[be] = "rocm7.2_r25.12"
+                    github_organization = "https://github.com/AMD-Ecosystem"
+                    backends[be] = "rocm10.0.0_r26.09"
                 backend_clone(
                     be,
                     cmake_script,
