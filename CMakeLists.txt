@@ -75,10 +75,10 @@ option(TRITON_ENABLE_ASAN "Build with address sanitizer" OFF)
 # Repo tags
 set(TRITON_REPO_ORGANIZATION "https://github.com/triton-inference-server" CACHE STRING "Git repository to pull from")
 if(${TRITON_ENABLE_ROCM})
-  set(TRITON_THIRD_PARTY_REPO_TAG "rocm7.2_r25.12" CACHE STRING
-      "Tag for ROCm/triton-inference-server-third_party repo")
-  set(TRITON_CORE_REPO_TAG "rocm7.2_r25.12" CACHE STRING "Tag for ROCm/triton-inference-server-core repo")
-  set(TRITON_BACKEND_REPO_TAG "rocm7.2_r25.12" CACHE STRING "Tag for ROCm/triton-inference-server-backend repo")
+  set(TRITON_THIRD_PARTY_REPO_TAG "rocm10.0.0_r26.09" CACHE STRING
+      "Tag for AMD-Ecosystem/triton-inference-server-third_party repo")
+  set(TRITON_CORE_REPO_TAG "rocm10.0.0_r26.09" CACHE STRING "Tag for AMD-Ecosystem/triton-inference-server-core repo")
+  set(TRITON_BACKEND_REPO_TAG "rocm10.0.0_r26.09" CACHE STRING "Tag for AMD-Ecosystem/triton-inference-server-backend repo")
 else()
   set(TRITON_THIRD_PARTY_REPO_TAG "main" CACHE STRING
       "Tag for triton-inference-server/third_party repo")
@@ -130,12 +130,12 @@ include(FetchContent)
 if(${TRITON_ENABLE_ROCM})
   FetchContent_Declare(
     repo-core
-    GIT_REPOSITORY https://github.com/ROCm/triton-inference-server-core.git
+    GIT_REPOSITORY https://github.com/AMD-Ecosystem/triton-inference-server-core.git
     GIT_TAG ${TRITON_CORE_REPO_TAG}
   )
   FetchContent_Declare(
     repo-third-party
-    GIT_REPOSITORY https://github.com/ROCm/triton-inference-server-third_party.git
+    GIT_REPOSITORY https://github.com/AMD-Ecosystem/triton-inference-server-third_party.git
     GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
   )
 else()
