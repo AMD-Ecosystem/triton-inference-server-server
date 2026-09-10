@@ -39,7 +39,8 @@ option(TRITON_ENABLE_LOGGING "Include logging support in server" ON)
 option(TRITON_ENABLE_STATS "Include statistics collections in server" ON)
 option(TRITON_ENABLE_TRACING "Include tracing support in server" OFF)
 option(TRITON_ENABLE_NVTX "Include NVTX support in server" OFF)
-option(TRITON_ENABLE_GPU "Enable GPU support in server" ON)
+option(TRITON_ENABLE_GPU "Enable CUDA GPU support in server" OFF)
+option(TRITON_ENABLE_ROCM "Enable ROCm GPU support in server" ON)
 option(TRITON_ENABLE_MALI_GPU "Enable Arm Mali GPU support in server" OFF)
 option(TRITON_IGPU_BUILD "Enable options for iGPU compilation in sever" OFF)
 set(TRITON_MIN_COMPUTE_CAPABILITY "7.5" CACHE STRING
@@ -73,11 +74,21 @@ option(TRITON_ENABLE_ASAN "Build with address sanitizer" OFF)
 
 # Repo tags
 set(TRITON_REPO_ORGANIZATION "https://github.com/triton-inference-server" CACHE STRING "Git repository to pull from")
-set(TRITON_THIRD_PARTY_REPO_TAG "main" CACHE STRING
-    "Tag for triton-inference-server/third_party repo")
+if(${TRITON_ENABLE_ROCM})
+  set(TRITON_THIRD_PARTY_REPO_TAG "rocm7.2_r25.12" CACHE STRING
+      "Tag for ROCm/triton-inference-server-third_party repo")
+  set(TRITON_CORE_REPO_TAG "rocm7.2_r25.12" CACHE STRING "Tag for ROCm/triton-inference-server-core repo")
+  set(TRITON_BACKEND_REPO_TAG "rocm7.2_r25.12" CACHE STRING "Tag for ROCm/triton-inference-server-backend repo")
+else()
+  set(TRITON_THIRD_PARTY_REPO_TAG "main" CACHE STRING
+      "Tag for triton-inference-server/third_party repo")
+  set(TRITON_CORE_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/core repo")
+  set(TRITON_BACKEND_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/backend repo")
+endif()
 set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/common repo")
-set(TRITON_CORE_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/core repo")
-set(TRITON_BACKEND_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/backend repo")
+
+# ROCm settings
+set(TRITON_BUILD_ROCM_HOME "/opt/rocm" CACHE PATH "ROCm install path")
 
 # Third-party location
 set(TRITON_THIRD_PARTY_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/third-party" CACHE STRING "Location of third-party build")
@@ -99,12 +110,16 @@ if (TRITON_ENABLE_METRICS_GPU AND NOT TRITON_ENABLE_METRICS)
   message(FATAL_ERROR "TRITON_ENABLE_METRICS_GPU=ON requires TRITON_ENABLE_METRICS=ON")
 endif()
 
-if (TRITON_ENABLE_METRICS_GPU AND NOT TRITON_ENABLE_GPU)
-  message(FATAL_ERROR "TRITON_ENABLE_METRICS_GPU=ON requires TRITON_ENABLE_GPU=ON")
+if (TRITON_ENABLE_METRICS_GPU AND NOT TRITON_ENABLE_GPU AND NOT TRITON_ENABLE_ROCM)
+  message(FATAL_ERROR "TRITON_ENABLE_METRICS_GPU=ON requires TRITON_ENABLE_GPU=ON or TRITON_ENABLE_ROCM=ON")
 endif()
 
 if(TRITON_ENABLE_ASAN AND TRITON_ENABLE_GPU)
   message(FATAL_ERROR "TRITON_ENABLE_ASAN=ON requires TRITON_ENABLE_GPU=OFF")
+endif()
+
+if(TRITON_ENABLE_GPU AND TRITON_ENABLE_ROCM)
+  message(FATAL_ERROR "TRITON_ENABLE_GPU=ON and TRITON_ENABLE_ROCM=ON are mutually exclusive")
 endif()
 
 #
@@ -112,16 +127,29 @@ endif()
 #
 include(FetchContent)
 
-FetchContent_Declare(
-  repo-core
-  GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/core.git
-  GIT_TAG ${TRITON_CORE_REPO_TAG}
-)
-FetchContent_Declare(
-  repo-third-party
-  GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/third_party.git
-  GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
-)
+if(${TRITON_ENABLE_ROCM})
+  FetchContent_Declare(
+    repo-core
+    GIT_REPOSITORY https://github.com/ROCm/triton-inference-server-core.git
+    GIT_TAG ${TRITON_CORE_REPO_TAG}
+  )
+  FetchContent_Declare(
+    repo-third-party
+    GIT_REPOSITORY https://github.com/ROCm/triton-inference-server-third_party.git
+    GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
+  )
+else()
+  FetchContent_Declare(
+    repo-core
+    GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/core.git
+    GIT_TAG ${TRITON_CORE_REPO_TAG}
+  )
+  FetchContent_Declare(
+    repo-third-party
+    GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/third_party.git
+    GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
+  )
+endif()
 
 # Some libs are installed to ${TRITON_THIRD_PARTY_INSTALL_PREFIX}/{LIB}/lib64 instead
 # of ${TRITON_THIRD_PARTY_INSTALL_PREFIX}/{LIB}/lib on Centos
@@ -135,6 +163,60 @@ endif(LINUX)
 set(TRITON_CORE_HEADERS_ONLY OFF)
 
 FetchContent_MakeAvailable(repo-third-party repo-core)
+
+#
+# ROCm/HIP Configuration and Hipification
+#
+if(${TRITON_ENABLE_ROCM})
+  enable_language(HIP)
+
+  list(APPEND CMAKE_MODULE_PATH "${TRITON_BUILD_ROCM_HOME}/lib/cmake/rocm")
+  find_package(ROCM REQUIRED CONFIG)
+  include(ROCMSetupVersion)
+  rocm_setup_version(VERSION 25.12)
+
+  # Read ROCm version
+  file(READ "${TRITON_BUILD_ROCM_HOME}/.info/version" ROCM_VERSION_STRING)
+  if(ROCM_VERSION_STRING MATCHES "([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+    set(ROCM_VERSION_DEV_MAJOR ${CMAKE_MATCH_1})
+    set(ROCM_VERSION_DEV_MINOR ${CMAKE_MATCH_2})
+    set(ROCM_VERSION_DEV_PATCH ${CMAKE_MATCH_3})
+    set(ROCM_VERSION_DEV "${ROCM_VERSION_DEV_MAJOR}.${ROCM_VERSION_DEV_MINOR}.${ROCM_VERSION_DEV_PATCH}")
+    math(EXPR ROCM_VERSION_DEV_INT "(${ROCM_VERSION_DEV_MAJOR}*10000) + (${ROCM_VERSION_DEV_MINOR}*100) + ${ROCM_VERSION_DEV_PATCH}")
+  endif()
+  message("\n***** ROCm version ****\n")
+  message("ROCM_VERSION_DEV: ${ROCM_VERSION_DEV}")
+  message("ROCM_VERSION_DEV_MAJOR: ${ROCM_VERSION_DEV_MAJOR}")
+  message("ROCM_VERSION_DEV_MINOR: ${ROCM_VERSION_DEV_MINOR}")
+  message("ROCM_VERSION_DEV_PATCH: ${ROCM_VERSION_DEV_PATCH}")
+  message("ROCM_VERSION_DEV_INT:   ${ROCM_VERSION_DEV_INT}")
+  message("\n***** HIP LANGUAGE CONFIG INFO ****\n")
+  message("CMAKE_HIP_COMPILER:      ${CMAKE_HIP_COMPILER}")
+  message("CMAKE_HIP_ARCHITECTURES: ${CMAKE_HIP_ARCHITECTURES}")
+  message("CMAKE_HIP_FLAGS:         ${CMAKE_HIP_FLAGS}")
+
+  if (NOT TRITON_HIPIFY_PERL)
+    find_path(HIPIFY_PERL_PATH
+      NAMES hipify-perl
+      HINTS
+      ${TRITON_BUILD_ROCM_HOME}/bin
+      ${TRITON_BUILD_ROCM_HOME}/hip/bin)
+    if (HIPIFY_PERL_PATH-NOTFOUND)
+      MESSAGE(FATAL_ERROR "hipify-perl not found")
+    endif()
+    set(TRITON_HIPIFY_PERL ${HIPIFY_PERL_PATH}/hipify-perl)
+  endif() #TRITON_HIPIFY_PERL
+
+  include(src/triton_rocm_hipify.cmake)
+  set(REPO_ROOT ${PROJECT_SOURCE_DIR})
+  hipify(src "" triton_hipified_cc_srcs triton_hipified_cu_srcs)
+
+  add_custom_target(generated_hipified_files DEPENDS
+    ${triton_hipified_cc_srcs}
+    ${triton_hipified_cu_srcs})
+                 
+  auto_set_source_files_hip_language(triton_hipified_cu_srcs)
+endif()
 
 #
 # Triton server executable and examples
@@ -193,6 +275,12 @@ endif() # TRITON_ENABLE_GRPC
 if(${TRITON_ENABLE_TRACING})
   set(TRITON_DEPENDS ${TRITON_DEPENDS} opentelemetry-cpp)
 endif() # TRITON_ENABLE_TRACING
+if(${TRITON_ENABLE_ROCM})
+  set(TRITON_DEPENDS ${TRITON_DEPENDS} generated_hipified_files)
+  set(_TRITON_EP_HIPIFIED_SOURCES_DIR "${CMAKE_CURRENT_BINARY_DIR}/amdgpu")
+else()
+  set(_TRITON_EP_HIPIFIED_SOURCES_DIR "")
+endif() # TRITON_ENABLE_ROCM
 
 ExternalProject_Add(triton-server
   PREFIX triton-server
@@ -236,6 +324,9 @@ ExternalProject_Add(triton-server
     -DTRITON_ENABLE_LOGGING:BOOL=${TRITON_ENABLE_LOGGING}
     -DTRITON_ENABLE_STATS:BOOL=${TRITON_ENABLE_STATS}
     -DTRITON_ENABLE_GPU:BOOL=${TRITON_ENABLE_GPU}
+    -DTRITON_ENABLE_ROCM:BOOL=${TRITON_ENABLE_ROCM}
+    -DTRITON_BUILD_ROCM_HOME:PATH=${TRITON_BUILD_ROCM_HOME}
+    -DTRITON_HIPIFIED_SOURCES_DIR:PATH=${_TRITON_EP_HIPIFIED_SOURCES_DIR}
     -DTRITON_ENABLE_MALI_GPU:BOOL=${TRITON_ENABLE_MALI_GPU}
     -DTRITON_ENABLE_HTTP:BOOL=${TRITON_ENABLE_HTTP}
     -DTRITON_ENABLE_SAGEMAKER:BOOL=${TRITON_ENABLE_SAGEMAKER}
@@ -254,5 +345,6 @@ ExternalProject_Add(triton-server
     -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
     -DCMAKE_INSTALL_PREFIX:PATH=${TRITON_INSTALL_PREFIX}
     -DTRITON_VERSION:STRING=${TRITON_VERSION}
+    -DTRITON_LINUX_DISTRO:STRING=${TRITON_LINUX_DISTRO}
   DEPENDS ${TRITON_DEPENDS}
 )

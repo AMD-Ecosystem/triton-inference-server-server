@@ -27,11 +27,6 @@
 
 export CUDA_VISIBLE_DEVICES=0
 
-TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="http://github.com/triton-inference-server"}
-TRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG:="main"}
-TRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG:="main"}
-TRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG:="main"}
-
 SERVER=/opt/tritonserver/bin/tritonserver
 source ../common/util.sh
 
@@ -52,7 +47,7 @@ cmake --version
 rm -fr *.log ./backend
 
 git clone --single-branch --depth=1 -b $TRITON_BACKEND_REPO_TAG \
-    ${TRITON_REPO_ORGANIZATION}/backend.git
+    $(triton_repo_url backend).git backend
 
 (cd backend/examples/backends/bls &&
  mkdir build &&
@@ -63,6 +58,7 @@ git clone --single-branch --depth=1 -b $TRITON_BACKEND_REPO_TAG \
        -DTRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG} \
        -DTRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG} \
        -DTRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG} \
+       ${TRITON_ROCM_CMAKE_ARG} \
        -DWARNINGS_AS_ERRORS:BOOL=OFF \
        .. &&
  make -j4 install)

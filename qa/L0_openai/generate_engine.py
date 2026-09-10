@@ -41,6 +41,13 @@ def generate_model_engine(model: str, engines_path: str):
         max_cpu_loras=8,
     )
 
+    lora_config = LoraConfig(
+        lora_target_modules=["attn_q", "attn_k", "attn_v"],
+        max_lora_rank=8,
+        max_loras=4,
+        max_cpu_loras=8,
+    )
+
     engine = LLM(
         model,
         dtype="float16",

@@ -27,9 +27,6 @@
 
 export CUDA_VISIBLE_DEVICES=0
 
-TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="http://github.com/triton-inference-server"}
-TRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG:="main"}
-
 SIMPLE_NODEJS_CLIENT=client.js
 
 SERVER=/opt/tritonserver/bin/tritonserver
@@ -51,7 +48,7 @@ RET=0
 # Get the proto files from the common repo
 rm -fr common
 git clone --single-branch --depth=1 -b $TRITON_COMMON_REPO_TAG \
-    ${TRITON_REPO_ORGANIZATION}/common.git
+    $(triton_repo_url common).git
 mkdir proto && cp common/protobuf/*.proto proto/.
 
 npm install

@@ -95,6 +95,18 @@ MODEL_TYPE=${MODEL_TYPE:-""}
 TRITON_MODELS_USE_DOCKER=${TRITON_MODELS_USE_DOCKER:-"1"}
 TRITON_MODELS_USE_ENROOT=${TRITON_MODELS_USE_ENROOT:-"1"}
 
+# ROCm support
+ROCM_ENABLED=$(echo "${TRITON_QA_GEN_ENABLE_ROCM:-0}" | tr '[:upper:]' '[:lower:]')
+if [ "$ROCM_ENABLED" = "1" ] || [ "$ROCM_ENABLED" = "on" ] || [ "$ROCM_ENABLED" = "true" ]; then
+    ROCM_ENABLED=true
+    log_message.info "ROCm mode enabled -- skipping OpenVINO and TensorRT model generation"
+    PYTORCH_IMAGE=${PYTORCH_IMAGE:=rocm/pytorch:rocm7.2_ubuntu24.04_py3.13_pytorch_release_2.10.0}
+else
+    ROCM_ENABLED=false
+    PYTORCH_IMAGE=${PYTORCH_IMAGE:=nvcr.io/nvidia/pytorch:$TRITON_VERSION-py3}
+    TENSORRT_IMAGE=${TENSORRT_IMAGE:=nvcr.io/nvidia/tensorrt:$TRITON_VERSION-py3}
+fi
+
 log_message.status "define: CI related parameters"
 CI_JOB_ID=${CI_JOB_ID:=$(date +%Y%m%d_%H%M)}
 RUNNER_ID=${RUNNER_ID:=0}
@@ -103,7 +115,11 @@ PROJECT_NAME=${PROJECT_NAME:=tritonserver}
 log_message.status "define: Docker engine parameters"
 DOCKER_VOLUME=${DOCKER_VOLUME:=volume.gen_qa_model_repository.${CI_JOB_ID}}
 DOCKER_VOLUME_CONTAINER=${DOCKER_VOLUME}.gen_qa_model_repository.${CI_JOB_ID}
-DOCKER_GPU_ARGS=${DOCKER_GPU_ARGS:-$([[ -v RUNNER_GPUS && $RUNNER_GPUS =~ ^[0-9] ]] && eval $NV_DOCKER_ARGS || echo "--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES" )}
+if $ROCM_ENABLED; then
+    DOCKER_GPU_ARGS=${DOCKER_GPU_ARGS:-"--device=/dev/kfd --device=/dev/dri --group-add video"}
+else
+    DOCKER_GPU_ARGS=${DOCKER_GPU_ARGS:-$([[ $RUNNER_GPUS =~ ^[0-9] ]] && eval $NV_DOCKER_ARGS || echo "--gpus device=$CUDA_DEVICE" )}
+fi
 
 function define_model_output_directories() {
     log_message.status "define: model output directories"
@@ -143,6 +159,13 @@ function define_models_generation_scripts() {
     log_message.status "define: script names"
     SCRIPT_NAME_SUFFIX=${SCRIPT_NAME_SUFFIX:-v2}
 
+    if $ROCM_ENABLED; then
+        GPU_SMI_CMD="rocm-smi || true"
+    else
+        GPU_SMI_CMD="nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
+nvidia-smi || true"
+    fi
+
     OPENVINOSCRIPT=gen.OpenVINO.gen_qa_model_repository.${SCRIPT_NAME_SUFFIX}.sh
     log_message.info "OpenVINO script: " "${OPENVINOSCRIPT}"
 
@@ -158,7 +181,6 @@ function define_models_generation_scripts() {
     log_message.status "create: OpenVINO script - ${OPENVINOSCRIPT}"
     cat > $OPENVINOSCRIPT <<EOF
 #!/bin/bash
-# Make all generated files accessible outside of container
 umask 0000
 nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
 nvidia-smi || true
@@ -211,7 +233,6 @@ EOF
     log_message.status "create: ONNX script - ${ONNXSCRIPT}"
     cat > $ONNXSCRIPT <<EOF
 #!/bin/bash
-# Make all generated files accessible outside of container
 umask 0000
 nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
 nvidia-smi || true
@@ -272,13 +293,49 @@ EOF
     fi
 
     log_message.status "create: PyTorch script - ${TORCHSCRIPT}"
+    if $ROCM_ENABLED; then
     cat > $TORCHSCRIPT <<EOF
 #!/bin/bash
-# Make all generated files accessible outside of container
 umask 0000
-nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
-nvidia-smi || true
-echo -e "${COLOR_INFO}Generating PyTorch models${COLOR_RESET}"
+rocm-smi || true
+pip3 install onnxscript requests
+set -e
+set -x
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_models.py --libtorch --models_dir=$TRITON_MDLS_QA_MODEL
+chmod -R 777 $TRITON_MDLS_QA_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_models.py --libtorch --variable --models_dir=$TRITON_MDLS_QA_VARIABLE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_VARIABLE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_identity_models.py --libtorch --models_dir=$TRITON_MDLS_QA_IDENTITY_MODEL
+chmod -R 777 $TRITON_MDLS_QA_IDENTITY_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_reshape_models.py --libtorch --variable --models_dir=$TRITON_MDLS_QA_RESHAPE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_RESHAPE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_sequence_models.py --libtorch --models_dir=$TRITON_MDLS_QA_SEQUENCE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_SEQUENCE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_sequence_models.py --libtorch --variable --models_dir=$TRITON_MDLS_QA_VARIABLE_SEQUENCE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_VARIABLE_SEQUENCE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_implicit_models.py --libtorch --models_dir=$TRITON_MDLS_QA_SEQUENCE_IMPLICIT_MODEL
+chmod -R 777 $TRITON_MDLS_QA_SEQUENCE_IMPLICIT_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_implicit_models.py --libtorch --variable --models_dir=$TRITON_MDLS_QA_VARIABLE_SEQUENCE_IMPLICIT_MODEL
+chmod -R 777 $TRITON_MDLS_QA_VARIABLE_SEQUENCE_IMPLICIT_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_dyna_sequence_models.py --libtorch --models_dir=$TRITON_MDLS_QA_DYNA_SEQUENCE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_DYNA_SEQUENCE_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_ragged_models.py --libtorch --models_dir=$TRITON_MDLS_QA_RAGGED_MODEL
+chmod -R 777 $TRITON_MDLS_QA_RAGGED_MODEL
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_image_models.py --resnet50 --resnet152 --vgg19 --models_dir=$TRITON_MDLS_QA_DYNAMIC_BATCH_IMAGE_MODEL
+chmod -R 777 $TRITON_MDLS_QA_DYNAMIC_BATCH_IMAGE_MODEL
+
+export TORCH_EXTENSIONS_DIR=/tmp/.cache/torch_extensions/
+mkdir -p \${TORCH_EXTENSIONS_DIR}
+python3 $TRITON_MDLS_SRC_DIR/gen_qa_custom_ops_models.py --libtorch --models_dir=$TRITON_MDLS_QA_CUSTOM_OPS
+mkdir -p $TRITON_MDLS_QA_CUSTOM_OPS/libtorch_modulo/
+cp \${TORCH_EXTENSIONS_DIR}/custom_modulo/custom_modulo.so $TRITON_MDLS_QA_CUSTOM_OPS/libtorch_modulo/.
+chmod -R 777 $TRITON_MDLS_QA_CUSTOM_OPS
+EOF
+    else
+    cat > $TORCHSCRIPT <<EOF
+#!/bin/bash
+umask 0000
+$GPU_SMI_CMD
 pip3 install onnxscript
 set -e
 PATH=$PATH:/usr/local/cuda-13.0/bin
@@ -322,6 +379,7 @@ cp \${TORCH_EXTENSIONS_DIR}/custom_modulo/custom_modulo.so $TRITON_MDLS_QA_CUSTO
 chmod -R 777 $TRITON_MDLS_QA_CUSTOM_OPS
 exit 0
 EOF
+    fi
 
     log_message.status "run: chmod a+x ${TORCHSCRIPT}"
     chmod a+x ${TORCHSCRIPT}
@@ -333,7 +391,6 @@ EOF
     log_message.status "create: TensorRT script - ${TRTSCRIPT}"
     cat > $TRTSCRIPT <<EOF
 #!/bin/bash
-# Make all generated files accessible outside of container
 umask 0000
 nvidia-smi --query-gpu=compute_cap,compute_mode,driver_version,name,index --format=csv || true
 nvidia-smi || true
@@ -491,11 +548,9 @@ if [ "$TRITON_MODELS_USE_DOCKER" -eq 1 ] && which docker ; then
     log_message.status "docker container: copy script to container"
     docker cp . $DOCKER_VOLUME_CONTAINER:/mnt/$CI_JOB_ID/gen_srcdir
 
-    log_message.status "docker container: copy shared sources to container"
-    for shared_src in "${TRITON_MDLS_SHARED_SRC[@]}"; do
-        log_message.info "docker cp $shared_src"
-        docker cp "$shared_src" $DOCKER_VOLUME_CONTAINER:/mnt/$CI_JOB_ID/gen_srcdir/
-    done
+    if $ROCM_ENABLED; then
+        log_message.info "Skipping OpenVINO model generation (ROCm mode)"
+    elif [[ "aarch64" != $(uname -m) ]] ; then
 
 
     log_message.status "docker run: $OPENVINOSCRIPT"
@@ -578,9 +633,9 @@ if [ "$TRITON_MODELS_USE_DOCKER" -eq 1 ] && which docker ; then
         exit 1
     fi
 
-    rm $TORCHSCRIPT
-
-    if [ "$MODEL_TYPE" != "igpu" ] ; then
+    if $ROCM_ENABLED; then
+        log_message.info "Skipping TensorRT model generation (ROCm mode)"
+    elif [ "$MODEL_TYPE" != "igpu" ] ; then
         log_message.status "docker pull: $TENSORRT_IMAGE"
         docker pull $TENSORRT_IMAGE
 
@@ -673,13 +728,17 @@ elif [ "$TRITON_MODELS_USE_ENROOT" -eq 1 ] && which enroot ; then
     enroot import --output /tmp/ubuntu.$CI_JOB_ID.enroot.sqsh docker://$UBUNTU_IMAGE
 
 
-    log_message.status "enroot create: openvino.ubuntu.$CI_JOB_ID"
-    enroot create --name openvino.ubuntu.$CI_JOB_ID /tmp/ubuntu.$CI_JOB_ID.enroot.sqsh
-    log_message.info "enroot start: openvino.ubuntu.$CI_JOB_ID"
-    enroot start --root --rw -m /tmp:/tmp -e TRITON_GENSRCDIR=$TRITON_MDLS_SRC_DIR -e TRITON_MODEL_GEN_IMAGE=$UBUNTU_IMAGE -e TRITON_CONTAINER_VERSION=$TRITON_CONTAINER_VERSION -e NVIDIA_UPSTREAM_VERSION=$NVIDIA_UPSTREAM_VERSION -e TRITON_SEMVER=$TRITON_SEMVER openvino.ubuntu.$CI_JOB_ID bash -xe $TRITON_MDLS_SRC_DIR/$OPENVINOSCRIPT
-    if [ $? -ne 0 ]; then
-        log_message.error "enroot start: ${OPENVINOSCRIPT} failed"
-        exit 1
+    if $ROCM_ENABLED; then
+        log_message.info "Skipping OpenVINO model generation (ROCm mode)"
+    else
+        log_message.status "enroot create: openvino.ubuntu.$CI_JOB_ID"
+        enroot create --name openvino.ubuntu.$CI_JOB_ID /tmp/ubuntu.$CI_JOB_ID.enroot.sqsh
+        log_message.info "enroot start: openvino.ubuntu.$CI_JOB_ID"
+        enroot start --root --rw -m /tmp:/tmp -e TRITON_GENSRCDIR=$TRITON_MDLS_SRC_DIR -e TRITON_MODEL_GEN_IMAGE=$UBUNTU_IMAGE -e TRITON_CONTAINER_VERSION=$TRITON_CONTAINER_VERSION -e NVIDIA_UPSTREAM_VERSION=$NVIDIA_UPSTREAM_VERSION -e TRITON_SEMVER=$TRITON_SEMVER openvino.ubuntu.$CI_JOB_ID bash -xe $TRITON_MDLS_SRC_DIR/$OPENVINOSCRIPT
+        if [ $? -ne 0 ]; then
+            log_message.error "enroot start: ${OPENVINOSCRIPT} failed"
+            exit 1
+        fi
     fi
 
 
@@ -709,15 +768,19 @@ elif [ "$TRITON_MODELS_USE_ENROOT" -eq 1 ] && which enroot ; then
         exit 1
     fi
 
-    log_message.status "enroot import: $TENSORRT_IMAGE to /tmp/tensorrt.$CI_JOB_ID.enroot.sqsh"
-    enroot import --output /tmp/tensorrt.$CI_JOB_ID.enroot.sqsh docker://$TENSORRT_IMAGE
-    log_message.status "enroot create: tensorrt.$CI_JOB_ID"
-    enroot create --name tensorrt.$CI_JOB_ID /tmp/tensorrt.$CI_JOB_ID.enroot.sqsh
-    log_message.info "enroot start: tensorrt.$CI_JOB_ID"
-    enroot start --rw -m /tmp:/tmp -e TRITON_GENSRCDIR=$TRITON_MDLS_SRC_DIR -e TRITON_MODEL_GEN_IMAGE=$TENSORRT_IMAGE -e TRITON_CONTAINER_VERSION=$TRITON_CONTAINER_VERSION -e NVIDIA_UPSTREAM_VERSION=$NVIDIA_UPSTREAM_VERSION -e TRITON_SEMVER=$TRITON_SEMVER tensorrt.$CI_JOB_ID bash -xe $TRITON_MDLS_SRC_DIR/$TRTSCRIPT
-    if [ $? -ne 0 ]; then
-        log_message.error "enroot start: ${TRTSCRIPT} failed"
-        exit 1
+    if $ROCM_ENABLED; then
+        log_message.info "Skipping TensorRT model generation (ROCm mode)"
+    else
+        log_message.status "enroot import: $TENSORRT_IMAGE to /tmp/tensorrt.$CI_JOB_ID.enroot.sqsh"
+        enroot import --output /tmp/tensorrt.$CI_JOB_ID.enroot.sqsh docker://$TENSORRT_IMAGE
+        log_message.status "enroot create: tensorrt.$CI_JOB_ID"
+        enroot create --name tensorrt.$CI_JOB_ID /tmp/tensorrt.$CI_JOB_ID.enroot.sqsh
+        log_message.info "enroot start: tensorrt.$CI_JOB_ID"
+        enroot start --rw -m /tmp:/tmp -e TRITON_GENSRCDIR=$TRITON_MDLS_SRC_DIR -e TRITON_MODEL_GEN_IMAGE=$TENSORRT_IMAGE -e TRITON_CONTAINER_VERSION=$TRITON_CONTAINER_VERSION -e NVIDIA_UPSTREAM_VERSION=$NVIDIA_UPSTREAM_VERSION -e TRITON_SEMVER=$TRITON_SEMVER tensorrt.$CI_JOB_ID bash -xe $TRITON_MDLS_SRC_DIR/$TRTSCRIPT
+        if [ $? -ne 0 ]; then
+            log_message.error "enroot start: ${TRTSCRIPT} failed"
+            exit 1
+        fi
     fi
 
 else

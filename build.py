@@ -79,6 +79,8 @@ DEFAULT_TRITON_VERSION_MAP = {
     "ort_openvino_version": "2026.3.0",
     "standalone_openvino_version": "2026.3.0",
     "dcgm_version": "4.6.1-1",
+    "vllm_version": "0.11.1",  # ROCm is using 0.19.0
+    "rhel_py_version": "3.12.3",
 }
 
 CORE_BACKENDS = ["ensemble"]
@@ -314,7 +316,7 @@ class BuildScript:
         # reference onto a new branch we name "tritonbuildref".
         if tag.startswith("pull/"):
             self.cmd(
-                f"  git clone --recursive --depth=1 {org}/{repo}.git {subdir}; git --git-dir {subdir}/.git log --oneline -1",
+                f"  git clone --recursive --depth=1 {org}/{repo}.git {subdir}; git --no-pager --git-dir {subdir}/.git log --oneline -1",
                 check_exitcode=True,
             )
             self.cmd("fi")
@@ -323,7 +325,7 @@ class BuildScript:
             self.cmd("git checkout tritonbuildref", check_exitcode=True)
         else:
             self.cmd(
-                f"  git clone --recursive --single-branch --depth=1 -b {tag} {org}/{repo}.git {subdir}; git --git-dir {subdir}/.git log --oneline -1",
+                f"  git clone --recursive --single-branch --depth=1 -b {tag} {org}/{repo}.git {subdir}; git --no-pager --git-dir {subdir}/.git log --oneline -1",
                 check_exitcode=True,
             )
             self.cmd("fi")
@@ -462,6 +464,7 @@ def core_cmake_args(components, backends, cmake_dir, install_dir):
     cargs.append(cmake_core_enable("TRITON_ENABLE_NVTX", FLAGS.enable_nvtx))
 
     cargs.append(cmake_core_enable("TRITON_ENABLE_GPU", FLAGS.enable_gpu))
+    cargs.append(cmake_core_enable("TRITON_ENABLE_ROCM", FLAGS.enable_rocm))
     cargs.append(
         cmake_core_arg(
             "TRITON_MIN_COMPUTE_CAPABILITY", None, FLAGS.min_compute_capability
@@ -469,6 +472,7 @@ def core_cmake_args(components, backends, cmake_dir, install_dir):
     )
 
     cargs.append(cmake_core_enable("TRITON_ENABLE_MALI_GPU", FLAGS.enable_mali_gpu))
+    cargs.append(cmake_core_arg("TRITON_LINUX_DISTRO", "STRING", FLAGS.linux_distro))
 
     cargs.append(cmake_core_enable("TRITON_ENABLE_GRPC", "grpc" in FLAGS.endpoint))
     cargs.append(cmake_core_enable("TRITON_ENABLE_HTTP", "http" in FLAGS.endpoint))
@@ -513,6 +517,8 @@ def repoagent_cmake_args(images, components, ra, install_dir):
     ]
 
     cargs.append(cmake_repoagent_enable("TRITON_ENABLE_GPU", FLAGS.enable_gpu))
+    cargs.append(cmake_repoagent_enable("TRITON_ENABLE_ROCM", FLAGS.enable_rocm))
+    cargs.append(cmake_repoagent_arg("TRITON_LINUX_DISTRO", "STRING", FLAGS.linux_distro))
     cargs += cmake_repoagent_extra_args()
     cargs.append("..")
     return cargs
@@ -537,6 +543,8 @@ def cache_cmake_args(images, components, cache, install_dir):
     ]
 
     cargs.append(cmake_cache_enable("TRITON_ENABLE_GPU", FLAGS.enable_gpu))
+    cargs.append(cmake_cache_enable("TRITON_ENABLE_ROCM", FLAGS.enable_rocm))
+    cargs.append(cmake_cache_arg("TRITON_LINUX_DISTRO", "STRING", FLAGS.linux_distro))
     cargs += cmake_cache_extra_args()
     cargs.append("..")
     return cargs
@@ -569,6 +577,8 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
         args = tensorrt_cmake_args()
     elif be == "tensorrtllm":
         args = tensorrtllm_cmake_args(images)
+    elif be == "tensorflow" and FLAGS.enable_rocm:
+        args = tensorflow_rocm_cmake_args()
     else:
         args = []
 
@@ -586,6 +596,8 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
     ]
 
     cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_GPU", FLAGS.enable_gpu))
+    cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_ROCM", FLAGS.enable_rocm))
+    cargs.append(cmake_backend_arg(be, "TRITON_LINUX_DISTRO", "STRING", FLAGS.linux_distro))
     cargs.append(
         cmake_backend_enable(be, "TRITON_ENABLE_MALI_GPU", FLAGS.enable_mali_gpu)
     )
@@ -612,6 +624,25 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
 
 
 def pytorch_cmake_args(images):
+    if FLAGS.enable_rocm:
+        cargs = [
+            cmake_backend_arg(
+                "pytorch", "CMAKE_PREFIX_PATH", "STRING",
+                "`python3 -c 'import torch;print(torch.utils.cmake_prefix_path)'`;/opt/rocm"
+            ),
+            cmake_backend_arg(
+                "pytorch", "TRITON_HIPIFY_PERL", "STRING",
+                "/opt/rocm/bin/hipify-perl"
+            ),
+            cmake_backend_arg(
+                "pytorch", "TRITON_ROCM_HOME", "PATH",
+                "/opt/rocm"
+            ),
+            cmake_backend_enable("pytorch", "TRITON_PYTORCH_ENABLE_TORCHVISION", False),
+            cmake_backend_enable("pytorch", "TRITON_PYTORCH_NVSHMEM", False),
+        ]
+        return cargs
+
     if "pytorch" in images:
         image = images["pytorch"]
     else:
@@ -661,27 +692,93 @@ def onnxruntime_cmake_args(images, library_paths):
                 )
             )
 
-    if "base" in images:
+    if FLAGS.enable_rocm:
         cargs.append(
-            cmake_backend_arg(
-                "onnxruntime", "TRITON_BUILD_CONTAINER", None, images["base"]
+            cmake_backend_enable(
+                "onnxruntime", "TRITON_ENABLE_ONNXRUNTIME_MIGRAPHX", True
             )
         )
-    else:
         cargs.append(
             cmake_backend_arg(
                 "onnxruntime",
-                "TRITON_BUILD_CONTAINER_VERSION",
+                "TRITON_BUILD_ROCM_HOME",
                 None,
-                FLAGS.upstream_container_version,
+                "/opt/rocm/",
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_ONNXRUNTIME_REPO",
+                None,
+                FLAGS.ort_repo,
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_ONNXRUNTIME_BRANCH",
+                None,
+                FLAGS.ort_branch,
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_MIGRAPHX_REPO",
+                None,
+                FLAGS.migraphx_repo,
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                "onnxruntime",
+                "TRITON_BUILD_MIGRAPHX_BRANCH",
+                None,
+                FLAGS.migraphx_branch,
             )
         )
 
+    effective_base = None
+    if "base" in images:
+        effective_base = images["base"]
+    elif FLAGS.enable_rocm:
+        if FLAGS.linux_distro == "debian":
+            effective_base = get_base_image_rocm_debian()
+        elif FLAGS.linux_distro == "ubuntu":
+            effective_base = get_base_image_rocm_ubuntu()
+
+    if target_platform() == "windows":
+        if effective_base is not None:
+            cargs.append(
+                cmake_backend_arg(
+                    "onnxruntime", "TRITON_BUILD_CONTAINER", None, effective_base
+                )
+            )
+    else:
+        if effective_base is not None:
+            cargs.append(
+                cmake_backend_arg(
+                    "onnxruntime", "TRITON_BUILD_CONTAINER", None, effective_base
+                )
+            )
+        else:
+            cargs.append(
+                cmake_backend_arg(
+                    "onnxruntime",
+                    "TRITON_BUILD_CONTAINER_VERSION",
+                    None,
+                    FLAGS.upstream_container_version,
+                )
+            )
+
     # TODO: TPRD-333 OpenVino extension is not currently supported by our manylinux build
+    # Skip OpenVINO for ROCm: the ROCm onnxruntime base image does not include OpenVINO libs
     if (
         (target_machine() != "aarch64")
         and (target_platform() != "rhel")
         and (FLAGS.ort_openvino_version is not None)
+        and (not FLAGS.enable_rocm)
     ):
         cargs.append(
             cmake_backend_enable(
@@ -790,6 +887,40 @@ def fastertransformer_cmake_args():
 def tensorrtllm_cmake_args(images):
     cargs = []
     cargs.append(cmake_backend_enable("tensorrtllm", "USE_CXX11_ABI", True))
+    return cargs
+
+
+def tensorflow_rocm_cmake_args():
+    """Return ROCm-specific CMake arguments for TensorFlow backend."""
+    cargs = []
+    cargs.append(
+        cmake_backend_arg("tensorflow",
+            "TRITON_BUILD_ROCM_HOME",
+            None,
+            "/opt/rocm/"
+        )
+    )
+    cargs.append(
+        cmake_backend_arg("tensorflow",
+            "TRITON_CORE_REPO_TAG",
+            None,
+            "rocm7.2_r25.12"
+        )
+    )
+    cargs.append(
+        cmake_backend_arg("tensorflow",
+            "TRITON_BACKEND_REPO_TAG",
+            None,
+            "rocm7.2_r25.12"
+        )
+    )
+    cargs.append(
+        cmake_backend_arg("tensorflow",
+            "TRITON_TENSORFLOW_DOCKER_IMAGE",
+            None,
+            "rocm/tensorflow:rocm7.2.3-py3.10-tf2.20-dev"
+        )
+    )
     return cargs
 
 
@@ -1078,9 +1209,11 @@ RUN pip3 install --upgrade pip \\
     df += f"""
 # Install boost version >= 1.78 for boost::span
 # Current libboost-dev apt packages are < 1.78, so install from tar.gz
+# Remove existing /usr/include/boost first so mv replaces it
 RUN wget -O /tmp/boost.tar.gz {FLAGS.boost_url} \\
       && sha256sum /tmp/boost.tar.gz | grep {FLAGS.boost_sha256} \\
       && (cd /tmp && tar xzf boost.tar.gz) \\
+      && rm -rf /usr/include/boost \\
       && mv /tmp/boost_1_80_0/boost /usr/include/boost
 """
 
@@ -1130,19 +1263,20 @@ ENV BUILD_NUMBER={}
 # Ensure apt-get won't prompt for selecting options
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install docker docker buildx
+# Install Docker client 25.0.x (API 1.44+) for compatibility with daemon minimum API 1.44
+ENV DOCKER_VERSION=25.0.5
 RUN apt-get update \\
-      && apt-get install -y ca-certificates curl gnupg \\
-      && install -m 0755 -d /etc/apt/keyrings \\
-      && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \\
-      && chmod a+r /etc/apt/keyrings/docker.gpg \\
-      && echo \\
-          "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \\
-          "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \\
-          tee /etc/apt/sources.list.d/docker.list > /dev/null \\
-      && apt-get update \\
-      && apt-get install -y docker.io docker-buildx-plugin
-
+      && apt-get install -y --no-install-recommends ca-certificates wget \\
+      && rm -rf /var/lib/apt/lists/* \\
+      && set -eux \\
+      && wget -q "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" -O /tmp/docker.tgz \\
+      && tar -xzf /tmp/docker.tgz -C /tmp \\
+      && mv /tmp/docker/docker /usr/local/bin/docker \\
+      && rm -rf /tmp/docker /tmp/docker.tgz \\
+      && chmod +x /usr/local/bin/docker \\
+      && docker version || true
+"""
+    df += """
 # libcurl4-openSSL-dev is needed for GCS
 # python3-dev is needed by Torchvision
 # python3-pip and libarchive-dev is needed by python backend
@@ -1189,17 +1323,52 @@ RUN pip3 install --upgrade \\
           pybind11[global]
 """
 
-    df += f"""
-# Install boost version >= 1.78 for boost::span
-# Current libboost-dev apt packages are < 1.78, so install from tar.gz
+    if getattr(FLAGS, "linux_distro", "ubuntu") == "debian":
+        df += f"""
+# Install boost version >= 1.78 for boost::span (Debian 12 apt has only 1.74)
+# Remove existing /usr/include/boost first so mv replaces it (else mv creates boost/boost/)
 RUN wget -O /tmp/boost.tar.gz {FLAGS.boost_url} \\
       && sha256sum /tmp/boost.tar.gz | grep {FLAGS.boost_sha256} \\
       && (cd /tmp && tar xzf boost.tar.gz) \\
+      && rm -rf /usr/include/boost \\
       && mv /tmp/boost_1_80_0/boost /usr/include/boost
+"""
+    else:
+        df += """
+# Install boost (Ubuntu base has >= 1.78; provides BoostConfig.cmake)
+RUN apt-get update \\
+      && apt-get install -y --no-install-recommends libboost-dev \\
+      && rm -rf /var/lib/apt/lists/*
 """
 
     if FLAGS.enable_gpu:
         df += install_dcgm_libraries(argmap["DCGM_VERSION"], target_machine())
+
+    if FLAGS.enable_rocm:
+        df += """
+# ROCm, MIGraphX, and ONNX Runtime already installed in base image
+# Add user to video and render groups for GPU access
+RUN groupadd -f video && groupadd -f render
+
+# Set ROCm environment variables for CMake to find HIP
+ENV ROCM_PATH=/opt/rocm
+ENV HIP_PATH=/opt/rocm
+ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
+"""
+        pytorch_requested = any(
+            b.split(":")[0] == "pytorch" for b in FLAGS.backend
+        )
+        if pytorch_requested:
+            df += """
+# Install PyTorch for ROCm (needed by pytorch backend build)
+RUN pip3 install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/rocm7.2
+
+# Create missing generated header required by PyTorch ROCm wheel
+RUN TORCH_INC=$(python3 -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'include'))") && \\
+    mkdir -p "${TORCH_INC}/c10/cuda/impl" && \\
+    printf '#pragma once\\n#define C10_CUDA_BUILD_SHARED_LIBS\\n' \\
+      > "${TORCH_INC}/c10/cuda/impl/cuda_cmake_macros.h"
+"""
 
     df += """
 ENV TRITON_SERVER_VERSION ${TRITON_VERSION}
@@ -1290,7 +1459,8 @@ ARG TRITON_CONTAINER_VERSION={}
     # PyTorch backends need extra CUDA and other
     # dependencies during runtime that are missing in the CPU-only base container.
     # These dependencies must be copied from the Triton Min image.
-    if not FLAGS.enable_gpu and ("pytorch" in backends):
+    # Skip for ROCm builds (ROCm uses a different base image).
+    if (not FLAGS.enable_rocm) and (not FLAGS.enable_gpu) and ("pytorch" in backends):
         df += """
 ############################################################################
 ##  Triton Min image
@@ -1311,7 +1481,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 """
 
     df += dockerfile_prepare_container_linux(
-        argmap, backends, FLAGS.enable_gpu, target_machine()
+        argmap, backends, FLAGS.enable_gpu, FLAGS.enable_rocm, target_machine()
     )
 
     df += f"""
@@ -1348,8 +1518,8 @@ LABEL com.amazonaws.sagemaker.capabilities.multi-models=true
 COPY docker/sagemaker/serve /usr/bin/.
 """
     # This is required since libcublasLt.so is not present during the build
-    # stage of the PyTorch backend
-    if not FLAGS.enable_gpu and ("pytorch" in backends):
+    # stage of the PyTorch backend. Skip for ROCm builds (no CUDA stubs).
+    if (not FLAGS.enable_rocm) and (not FLAGS.enable_gpu) and ("pytorch" in backends):
         df += """
 RUN patchelf --add-needed /usr/local/cuda/lib64/stubs/libcublasLt.so.13 backends/pytorch/libtorch_cuda.so
 """
@@ -1366,8 +1536,8 @@ RUN ldconfig && \\
         dfile.write(df)
 
 
-def dockerfile_prepare_container_linux(argmap, backends, enable_gpu, target_machine):
-    gpu_enabled = 1 if enable_gpu else 0
+def dockerfile_prepare_container_linux(argmap, backends, enable_gpu, enable_rocm, target_machine):
+    gpu_enabled = 1 if (enable_gpu or enable_rocm) else 0
     # Common steps to produce docker images shared by build.py and compose.py.
     # Sets environment variables, installs dependencies and adds entrypoint
     df = """
@@ -1376,17 +1546,40 @@ ARG TRITON_CONTAINER_VERSION
 
 ENV TRITON_SERVER_VERSION ${TRITON_VERSION}
 ENV NVIDIA_TRITON_SERVER_VERSION ${TRITON_CONTAINER_VERSION}
+"""
+    if enable_rocm:
+        df += """
+LABEL com.amd.tritonserver.version="${TRITON_SERVER_VERSION}"
+"""
+    else:
+        df += """
 LABEL com.nvidia.tritonserver.version="${TRITON_SERVER_VERSION}"
+"""
 
+    df += """
 ENV PATH /opt/tritonserver/bin:${PATH}
 # Remove once https://github.com/openucx/ucx/pull/9148 is available
 # in the min container.
 ENV UCX_MEM_EVENTS no
 """
 
-    # Necessary for libtorch.so to find correct HPCX libraries
+    # Necessary for libtorch.so to find correct HPCX/UCX libraries
     if "pytorch" in backends:
-        df += """
+        if enable_rocm:
+            df += """
+# Install PyTorch ROCm wheel in the production container for runtime libs
+RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/rocm7.2
+
+# Add PyTorch libs to linker search path:
+#   ldconfig  — indexes versioned .so files (e.g. libtorch_hip.so.1)
+#   LD_LIBRARY_PATH — needed for unversioned .so files (e.g. libgomp.so)
+RUN TORCH_LIB=$(python3 -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))") \
+    && echo "$TORCH_LIB" > /etc/ld.so.conf.d/pytorch.conf && ldconfig \
+    && ln -sf "$TORCH_LIB" /opt/pytorch_lib
+ENV LD_LIBRARY_PATH /opt/pytorch_lib:${LD_LIBRARY_PATH}
+"""
+        else:
+            df += """
 ENV LD_LIBRARY_PATH /opt/hpcx/ucc/lib/:/opt/hpcx/ucx/lib/:${LD_LIBRARY_PATH}
 """
 
@@ -1414,6 +1607,11 @@ ENV TRITON_SERVER_GPU_ENABLED    {gpu_enabled}
 # artifacts copied below remain owned by root; the triton-server
 # user reads and executes them via standard group/other permissions.
 ENV TRITON_SERVER_USER=triton-server
+""".format(
+        gpu_enabled=gpu_enabled
+    )
+    if not enable_rocm:
+        df += """
 RUN userdel tensorrt-server > /dev/null 2>&1 || true \\
       && userdel ubuntu > /dev/null 2>&1 || true \\
       && if ! id -u $TRITON_SERVER_USER > /dev/null 2>&1 ; then \\
@@ -1421,9 +1619,7 @@ RUN userdel tensorrt-server > /dev/null 2>&1 || true \\
         fi \\
       && [ `id -u $TRITON_SERVER_USER` -eq 1000 ] \\
       && [ `id -g $TRITON_SERVER_USER` -eq 1000 ]
-""".format(
-        gpu_enabled=gpu_enabled
-    )
+"""
 
     if target_platform() == "rhel":
         df += """
@@ -1503,6 +1699,14 @@ RUN ln -sf ${_CUDA_COMPAT_PATH}/lib.real ${_CUDA_COMPAT_PATH}/lib \\
     && ldconfig \\
     && rm -f ${_CUDA_COMPAT_PATH}/lib
 """
+    elif enable_rocm:
+        df += """
+# ROCm, MIGraphX, and ONNX Runtime already installed in base image
+# Set ROCm environment variables for runtime
+ENV ROCM_PATH=/opt/rocm
+ENV HIP_PATH=/opt/rocm
+ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
+"""
     else:
         df += add_cpu_libs_to_linux_dockerfile(backends, target_machine)
 
@@ -1541,7 +1745,48 @@ RUN apt-get update \\
             virtualenv \\
       && rm -rf /var/lib/apt/lists/*
 """
-    if "tensorrtllm" in backends or "vllm" in backends:
+    if "vllm" in backends:
+        if enable_rocm:
+            if FLAGS.linux_distro == "debian":
+                pass
+            else:
+                df += install_vllm()
+        else:
+            df += f"""
+# Install required packages for vLLM models
+ARG BUILD_PUBLIC_VLLM="true"
+RUN --mount=type=secret,id=req,target=/run/secrets/requirements \\
+    --mount=type=secret,id=VLLM_INDEX_URL,env=VLLM_INDEX_URL \\
+    --mount=type=secret,id=PYTORCH_TRITON_URL,env=PYTORCH_TRITON_URL \\
+    --mount=type=secret,id=NVPL_SLIM_URL,env=NVPL_SLIM_URL \\
+    if [ "$BUILD_PUBLIC_VLLM" = "false" ]; then \\
+        if [ "$(uname -m)" = "x86_64" ]; then \\
+            pip3 install --no-cache-dir \\
+                mkl==2021.1.1 \\
+                mkl-include==2021.1.1 \\
+                mkl-devel==2021.1.1; \\
+        elif [ "$(uname -m)" = "aarch64" ]; then \\
+            echo "Downloading NVPL from: $NVPL_SLIM_URL" && \\
+            cd /tmp && \\
+            wget -O nvpl_slim_24.04.tar $NVPL_SLIM_URL && \\
+            tar -xf nvpl_slim_24.04.tar && \\
+            cp -r nvpl_slim_24.04/lib/* /usr/local/lib && \\
+            cp -r nvpl_slim_24.04/include/* /usr/local/include && \\
+            rm -rf nvpl_slim_24.04.tar nvpl_slim_24.04; \\
+        fi \\
+        && pip3 install --no-cache-dir --extra-index-url $VLLM_INDEX_URL -r /run/secrets/requirements \\
+        && cd /tmp \\
+        && wget $PYTORCH_TRITON_URL \\
+        && pip install --no-cache-dir /tmp/pytorch_triton-*.whl \\
+        && rm /tmp/pytorch_triton-*.whl; \\
+    else \\
+        pip3 install vllm=={DEFAULT_TRITON_VERSION_MAP["vllm_version"]}; \\
+    fi
+
+ARG PYVER=3.12
+ENV LD_LIBRARY_PATH /usr/local/lib:/usr/local/lib/python${{PYVER}}/dist-packages/torch/lib:${{LD_LIBRARY_PATH}}
+"""
+    if "tensorrtllm" in backends or ("vllm" in backends and not enable_rocm):
         df += """
 ENV TRITON_CUDACRT_PATH=/usr/local/cuda/include \\
     TRITON_CUDART_PATH=/usr/local/cuda/include \\
@@ -1573,16 +1818,32 @@ RUN dirname  $(find /usr -name "libcudart*.so" -o  -name "libnvinf*.so" -o -name
 WORKDIR /opt/tritonserver
 RUN rm -fr /opt/tritonserver/*
 ENV NVIDIA_PRODUCT_NAME="Triton Server"
+"""
+    if enable_rocm:
+        df += """
+COPY docker/cpu_only/ /opt/rocm/
+COPY docker/entrypoint.d/ /opt/rocm/entrypoint.d/
+RUN chmod +x /opt/rocm/rocm_entrypoint.sh
+ENTRYPOINT ["/opt/rocm/rocm_entrypoint.sh"]
+"""
+    else:
+        df += """
 COPY docker/entrypoint.d/ /opt/nvidia/entrypoint.d/
 """
 
     # The CPU-only build uses ubuntu as the base image, and so the
     # entrypoint files are not available in /opt/nvidia in the base
     # image, so we must provide them ourselves.
-    if not enable_gpu:
+    if not enable_gpu and not enable_rocm:
         df += """
 COPY docker/cpu_only/ /opt/nvidia/
 ENTRYPOINT ["/opt/nvidia/nvidia_entrypoint.sh"]
+"""
+
+    if not enable_rocm:
+        df += """
+COPY docker/cpu_only/ /opt/rocm/
+ENTRYPOINT ["/opt/rocm/rocm_entrypoint.sh"]
 """
 
     df += """
@@ -1681,6 +1942,16 @@ RUN tar -xvf /opt/_internal/static-libs-for-embedding-only.tar.xz \\
 """
 
 
+def get_base_image_rocm_debian():
+    """Return base image for ROCm Debian"""
+    return "localhost/debian12_rocm7.2.3"
+
+
+def get_base_image_rocm_ubuntu():
+    """Return base image for ROCm Ubuntu"""
+    return "localhost/ubuntu24.04_rocm7.2.3"
+
+
 def create_build_dockerfiles(
     container_build_dir, images, backends, repoagents, caches, endpoints
 ):
@@ -1696,6 +1967,12 @@ def create_build_dockerfiles(
         base_image = "nvcr.io/nvidia/tritonserver:{}-py3-min".format(
             FLAGS.upstream_container_version
         )
+    elif FLAGS.enable_rocm:
+        # Only onnxruntime and python backends share the same base image (debian or ubuntu)
+        if FLAGS.linux_distro == "debian":
+            base_image = get_base_image_rocm_debian()
+        else:
+            base_image = get_base_image_rocm_ubuntu()
     else:
         base_image = "ubuntu:24.04"
 
@@ -1716,7 +1993,12 @@ def create_build_dockerfiles(
 
     # For CPU-only image we need to copy some cuda libraries and dependencies
     # since we are using PyTorch containers that are not CPU-only.
-    if not FLAGS.enable_gpu and ("pytorch" in backends):
+    if (
+        not FLAGS.enable_gpu
+        and not FLAGS.enable_rocm
+        and ("pytorch" in backends)
+        and (target_platform() != "windows")
+    ):
         if "gpu-base" in images:
             gpu_base_image = images["gpu-base"]
         else:
@@ -1801,6 +2083,8 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
         docker_script.comment("Run build in tritonserver_buildbase container")
         docker_script.comment("Mount a directory into the container where the install")
         docker_script.comment("artifacts will be placed.")
+        if getattr(FLAGS, "reuse_third_party_build", False):
+            docker_script.comment("With --reuse-third-party-build, build/tritonbuild_cache is mounted so third-party libs are reused.")
         docker_script.comment()
 
         # Don't use '-v' to communicate the built artifacts out of the
@@ -1814,7 +2098,16 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "/workspace/build",
             "--name",
             "tritonserver_builder",
+            "-e",
+            "GIT_TERMINAL_PROMPT=0",  # avoid credential prompt for public FetchContent clones
         ]
+
+        # Optional: mount persistent build dir so third-party libs are reused
+        if getattr(FLAGS, "reuse_third_party_build", False) and target_platform() != "windows":
+            tritonbuild_cache = os.path.abspath(
+                os.path.join(FLAGS.build_dir, "tritonbuild_cache")
+            )
+            runargs += ["-v", "{}:/tmp/tritonbuild".format(tritonbuild_cache)]
 
         if not FLAGS.no_container_interactive:
             runargs += ["-it"]
@@ -2071,6 +2364,19 @@ def tensorrtllm_postbuild(cmake_script, repo_install_dir, tensorrtllm_be_dir):
     )
 
 
+def install_vllm():
+    """Return Dockerfile fragment to install vLLM for ROCm."""
+    df = """
+# Install vLLM pre-built wheel for ROCm
+RUN apt-get update && apt-get install -y --no-install-recommends libopenmpi-dev && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir uv
+RUN uv pip install --system --no-cache --break-system-packages vllm --pre \\
+        --extra-index-url https://wheels.vllm.ai/rocm/nightly/rocm721 \\
+        --upgrade
+"""
+    return df
+
+
 def backend_build(
     be,
     cmake_script,
@@ -2091,21 +2397,106 @@ def backend_build(
     cmake_script.comment()
     cmake_script.mkdir(build_dir)
     cmake_script.cwd(build_dir)
+
     if be == "tensorrtllm":
         repository_name = "TensorRT-LLM"
         cmake_script.gitclone(repository_name, tag, be, github_organization)
+    elif be == "onnxruntime" and FLAGS.enable_rocm:
+        # ROCm ONNX Runtime backend: use local dir from --onnxruntime-backend-dir if set, else clone
+        if getattr(FLAGS, "onnxruntime_backend_dir", None):
+            cmake_script.comment(
+                "Using local ONNX Runtime backend from --onnxruntime-backend-dir (mounted at {}/onnxruntime)".format(
+                    build_dir
+                )
+            )
+        else:
+            cmake_script.gitclone(
+                "triton-inference-server-onnxruntime_backend",
+                "rocm7.2.3_r25.12",
+                be,
+                "https://github.com/ROCm",
+            )
+    elif be == "python" and FLAGS.enable_rocm:
+        # Use AMD-specific python_backend fork for ROCm support
+        cmake_script.gitclone(
+            "triton-inference-server-python_backend",
+            "rocm7.2_r25.12",
+            "python",
+            "https://github.com/ROCm",
+        )
+    elif be == "pytorch" and FLAGS.enable_rocm:
+        # Use AMD-specific pytorch_backend fork for ROCm support
+        cmake_script.gitclone(
+            "triton-inference-server-pytorch_backend",
+            "rocm7.2_r25.12",
+            "pytorch",
+            "https://github.com/ROCm",
+        )
+    elif be == "tensorflow" and FLAGS.enable_rocm:
+        cmake_script.gitclone(
+            "triton-inference-server-tensorflow_backend", 
+            "rocm7.2.3_r24.03", 
+            "tensorflow_backend", 
+            "https://github.com/ROCm"
+        )
+        cmake_script.mkdir("tensorflow_backend/build")
+        cmake_script.cwd("tensorflow_backend/build")
+        cmake_script.cmake(
+            backend_cmake_args(images, components, be, repo_install_dir, library_paths)
+        )
+        cmake_script.makeinstall()
+        cmake_script.mkdir(os.path.join(install_dir, "backends"))
+        cmake_script.rmdir(os.path.join(install_dir, "backends", be))
+        cmake_script.cpdir(
+            os.path.join(repo_install_dir, "backends", be),
+            os.path.join(install_dir, "backends"),
+        )
     else:
         cmake_script.gitclone(backend_repo(be), tag, be, github_organization)
 
     if be == "tensorrtllm":
         tensorrtllm_prebuild(cmake_script)
 
-    cmake_script.mkdir(repo_build_dir)
-    cmake_script.cwd(repo_build_dir)
-    cmake_script.cmake(
-        backend_cmake_args(images, components, be, repo_install_dir, library_paths)
-    )
-    cmake_script.makeinstall()
+    if be == "onnxruntime" and FLAGS.enable_rocm:
+        # ONNX Runtime library is pre-built in base image; Triton backend code needs hipification
+        cmake_script.mkdir(repo_build_dir)
+        cmake_script.cwd(repo_build_dir)
+        cmake_script.comment("")
+        cmake_script.comment(
+            "Find all the source files containing string \"cuda\", and hipify"
+        )
+        cmake_script.comment(
+            "the \"|| echo...\" prevents exiting the script if grep finds nothing"
+        )
+        cmake_script.cmd(
+            "grep -il cuda $(find .. -name '*.cc') > cudafiles.txt  || echo \"\""
+        )
+        cmake_script.cmd(
+            "grep -il cuda $(find .. -name '*.h') >> cudafiles.txt || echo \"\""
+        )
+        cmake_script.cmd("date && hipify-perl -inplace $(cat cudafiles.txt) && date")
+        onnxruntime_src = os.path.join(build_dir, be, "src", "onnxruntime.cc")
+        cmake_script.comment(
+            "sed substitution so backend calls RocmStream() (ROCm backend API)"
+        )
+        cmake_script.cmd(
+            'sed -i "s/CudaStream()/RocmStream()/" ' + onnxruntime_src
+        )
+        cmake_script.comment("")
+        cmake_script.cmake(
+            backend_cmake_args(images, components, be, repo_install_dir, library_paths)
+        )
+        cmake_script.makeinstall()
+    elif be == "tensorflow" and FLAGS.enable_rocm:
+        # TensorFlow ROCm backend is already built above, skip normal build
+        pass
+    else:
+        cmake_script.mkdir(repo_build_dir)
+        cmake_script.cwd(repo_build_dir)
+        cmake_script.cmake(
+            backend_cmake_args(images, components, be, repo_install_dir, library_paths)
+        )
+        cmake_script.makeinstall()
 
     if be == "tensorrtllm":
         tensorrtllm_be_dir = os.path.join(build_dir, be)
@@ -2139,7 +2530,10 @@ def backend_clone(
     clone_script.comment()
     clone_script.mkdir(build_dir)
     clone_script.cwd(build_dir)
-    clone_script.gitclone(backend_repo(be), tag, be, github_organization)
+    repo = backend_repo(be)
+    if be == "vllm" and FLAGS.enable_rocm:
+        repo = "triton-inference-server-vllm_backend"
+    clone_script.gitclone(repo, tag, be, github_organization)
 
     repo_target_dir = os.path.join(install_dir, "backends")
     clone_script.mkdir(repo_target_dir)
@@ -2289,8 +2683,15 @@ def cibase_build(
 
     # The onnxruntime_backend build produces some artifacts that
     # are needed for CI testing.
+    # Skip when test dir does not exist (e.g. ROCm build may not produce test artifacts)
     if "onnxruntime" in backends:
         ort_install_dir = os.path.join(build_dir, "onnxruntime", "install")
+        ort_test_dir = os.path.join(ort_install_dir, "test")
+        if target_platform() == "windows":
+            cmake_script.cmd(f"if (Test-Path -Path {ort_test_dir}) {{")
+        else:
+            cmake_script.cmd(f"if [[ -d {ort_test_dir} ]]; then")
+
         cmake_script.mkdir(os.path.join(ci_dir, "qa", "L0_custom_ops"))
         if target_platform() != "igpu":
             cmake_script.cp(
@@ -2301,6 +2702,10 @@ def cibase_build(
                 os.path.join(ort_install_dir, "test", "custom_op_test.onnx"),
                 os.path.join(ci_dir, "qa", "L0_custom_ops"),
             )
+            backend_tests = os.path.join(build_dir, "onnxruntime", "test", "*")
+            cmake_script.cpdir(backend_tests, os.path.join(ci_dir, "qa"))
+
+        cmake_script.cmd("}" if target_platform() == "windows" else "fi")
 
     # Need the build area for some backends so that they can be
     # rebuilt with specific options.
@@ -2483,6 +2888,12 @@ if __name__ == "__main__":
         help="Temporary directory used for building inside docker. Default is /tmp.",
     )
     parser.add_argument(
+        "--reuse-third-party-build",
+        action="store_true",
+        required=False,
+        help="Mount a persistent directory for the in-container build so third-party libs (e.g. libevhtp, re2, grpc) are reused across runs instead of rebuilding from scratch. Uses build/tritonbuild_cache on the host.",
+    )
+    parser.add_argument(
         "--library-paths",
         action="append",
         required=False,
@@ -2585,6 +2996,16 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--enable-gpu", action="store_true", required=False, help="Enable GPU support."
+    )
+    parser.add_argument(
+        "--enable-rocm", action="store_true", required=False, help="Enable AMD GPU support."
+    )
+    parser.add_argument(
+        "--linux-distro",
+        type=str,
+        required=False,
+        default="ubuntu",
+        help="Linux distro to use for build so far only support onnxruntime backend (e.g. ubuntu, debian).",
     )
     parser.add_argument(
         "--enable-mali-gpu",
@@ -2719,6 +3140,34 @@ if __name__ == "__main__":
         required=False,
         default=DEFAULT_TRITON_VERSION_MAP["ort_openvino_version"],
         help="This flag sets the OpenVino version for Triton Inference Server to be built. Default: the latest supported version.",
+    )
+    parser.add_argument(
+        "--ort-repo",
+        required=False,
+        type=str,
+        default="https://github.com/ROCm/onnxruntime",
+        help="ONNX Runtime (ROCm) git repo URL when building from source. Used by onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--ort-branch",
+        required=False,
+        type=str,
+        default="rocm7.2_internal_testing",
+        help="ONNX Runtime (ROCm) git branch when building from source. Used by onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--migraphx-repo",
+        required=False,
+        type=str,
+        default="https://github.com/ROCm/AMDMIGraphX.git",
+        help="MIGraphX git repo URL when building from source. Used by onnxruntime backend.",
+    )
+    parser.add_argument(
+        "--migraphx-branch",
+        required=False,
+        type=str,
+        default="release/rocm-rel-7.2",
+        help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--standalone-openvino-version",
@@ -2897,6 +3346,18 @@ if __name__ == "__main__":
             )
             backends["python"] = backends["vllm"]
 
+    # ROCm: warn about backends that are not yet enabled
+    if FLAGS.enable_rocm and backends:
+        backend_names = list(backends.keys())
+        rocm_enabled = ("onnxruntime", "python", "pytorch", "vllm", "tensorflow")
+        not_enabled = [b for b in backend_names if b not in rocm_enabled]
+        if not_enabled:
+            print(
+                "Backend(s) {} are not yet enabled for ROCm.".format(
+                    ", ".join(not_enabled)
+                )
+            )
+
     # Initialize map of repo agents to build and repo-tag for each.
     repoagents = {}
     for be in FLAGS.repoagent:
@@ -3038,12 +3499,21 @@ if __name__ == "__main__":
             fail(str(e))
 
     # Initialize map of common components and repo-tag for each.
-    components = {
-        "common": default_repo_tag,
-        "core": default_repo_tag,
-        "backend": default_repo_tag,
-        "thirdparty": default_repo_tag,
-    }
+    # ROCm builds use ROCm org repos and tags (triton-inference-server-core, triton-inference-server-backend, triton-inference-server-third_party).
+    if FLAGS.enable_rocm:
+        components = {
+            "common": default_repo_tag,
+            "core": "rocm7.2_r25.12",      # https://github.com/ROCm/triton-inference-server-core
+            "backend": "rocm7.2_r25.12",   # https://github.com/ROCm/triton-inference-server-backend
+            "thirdparty": "rocm7.2_r25.12",  # https://github.com/ROCm/triton-inference-server-third_party
+        }
+    else:
+        components = {
+            "common": default_repo_tag,
+            "core": default_repo_tag,
+            "backend": default_repo_tag,
+            "thirdparty": default_repo_tag,
+        }
     for be in FLAGS.repo_tag:
         parts = be.split(":")
         fail_if(len(parts) != 2, "--repo-tag must specify <component-name>:<repo-tag>")
@@ -3134,6 +3604,13 @@ if __name__ == "__main__":
         verbose=FLAGS.verbose,
         desc=("Build script for Triton Inference Server"),
     ) as cmake_script:
+        # Avoid Git credential prompt when cloning public FetchContent repos
+        if target_platform() == "windows":
+            cmake_script.cmd("$env:GIT_TERMINAL_PROMPT=0")
+        else:
+            cmake_script.cmd("export GIT_TERMINAL_PROMPT=0")
+        cmake_script.blankln()
+
         # Run the container pre-build command if the cmake build is
         # being done within the build container.
         if not FLAGS.no_container_build and FLAGS.container_prebuild_command:
@@ -3167,6 +3644,9 @@ if __name__ == "__main__":
                 )
 
             if be == "vllm":
+                if FLAGS.enable_rocm:
+                    github_organization = "https://github.com/ROCm"
+                    backends[be] = "rocm7.2_r25.12"
                 backend_clone(
                     be,
                     cmake_script,

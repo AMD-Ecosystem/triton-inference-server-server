@@ -27,9 +27,6 @@
 
 export CUDA_VISIBLE_DEVICES=0
 
-TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="http://github.com/triton-inference-server"}
-TRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG:="main"}
-
 GO_CLIENT_DIR=client/src/grpc_generated/go
 
 SERVER=/opt/tritonserver/bin/tritonserver
@@ -50,13 +47,13 @@ RET=0
 
 # Generate Go stubs.
 rm -fr client common
-git clone ${TRITON_REPO_ORGANIZATION}/client.git
+git clone $(triton_repo_url client).git
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 pushd ${GO_CLIENT_DIR}
 
 git clone --single-branch --depth=1 -b $TRITON_COMMON_REPO_TAG \
-    ${TRITON_REPO_ORGANIZATION}/common.git
+    $(triton_repo_url common).git
 bash gen_go_stubs.sh
 
 set +e

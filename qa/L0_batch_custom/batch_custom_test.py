@@ -262,7 +262,7 @@ class BatcherTest(tu.TestResultCollector):
                 t.join()
             self.check_deferred_exception()
             model_name = tu.get_zero_model_name(model_base, len(shapes), dtype)
-            self.check_status(model_name, None, 12, 12, (4, 5, 6))
+            self.check_status(model_name, None, 14, 14, (6, 7, 8))
         except Exception as ex:
             self.assertTrue(False, "unexpected error {}".format(ex))
 

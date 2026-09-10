@@ -29,6 +29,13 @@ CLIENT_LOG="./ensemble_client.log"
 source ../common.sh
 source ../../common/util.sh
 
+# Skip ensemble tests on ROCm — ensemble platform and pytorch backend not available
+ROCM_ENABLED=$(echo ${TRITON_ENABLE_ROCM} | tr '[:upper:]' '[:lower:]')
+if [[ "${ROCM_ENABLED}" == "1" ]] || [[ "${ROCM_ENABLED}" == "on" ]] || [[ "${ROCM_ENABLED}" == "true" ]]; then
+    echo "ROCm detected, skipping ensemble tests"
+    exit 0
+fi
+
 # FIXME: [DLIS-5970] Until Windows supports GPU tensors, only test CPU scenarios
 if [[ ${TEST_WINDOWS} == 1 ]]; then
     EXPECTED_NUM_TESTS="1"
