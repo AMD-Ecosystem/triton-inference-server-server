@@ -74,6 +74,15 @@ endif() # TRITON_ENABLE_GRPC
 
 FetchContent_MakeAvailable(repo-common repo-core repo-backend)
 
+set(TRITON_SERVER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+if(${TRITON_ENABLE_ROCM})
+  if(NOT TRITON_HIPIFIED_SOURCES_DIR)
+    message(FATAL_ERROR
+      "TRITON_HIPIFIED_SOURCES_DIR is required for a ROCm server build")
+  endif()
+  set(TRITON_SERVER_SOURCE_DIR "${TRITON_HIPIFIED_SOURCES_DIR}/src")
+endif() # TRITON_ENABLE_ROCM
+
 # CUDA / ROCm
 #
 if(${TRITON_ENABLE_GPU})
@@ -125,16 +134,16 @@ find_package(Protobuf CONFIG REQUIRED)
 #
 add_executable(
   main
-  classification.cc
-  command_line_parser.cc
-  common.cc
-  main.cc
-  shared_memory_manager.cc
-  triton_signal.cc
-  classification.h
-  common.h
-  shared_memory_manager.h
-  triton_signal.h
+  ${TRITON_SERVER_SOURCE_DIR}/classification.cc
+  ${TRITON_SERVER_SOURCE_DIR}/command_line_parser.cc
+  ${TRITON_SERVER_SOURCE_DIR}/common.cc
+  ${TRITON_SERVER_SOURCE_DIR}/main.cc
+  ${TRITON_SERVER_SOURCE_DIR}/shared_memory_manager.cc
+  ${TRITON_SERVER_SOURCE_DIR}/triton_signal.cc
+  ${TRITON_SERVER_SOURCE_DIR}/classification.h
+  ${TRITON_SERVER_SOURCE_DIR}/common.h
+  ${TRITON_SERVER_SOURCE_DIR}/shared_memory_manager.h
+  ${TRITON_SERVER_SOURCE_DIR}/triton_signal.h
 )
 
 set_property(TARGET main PROPERTY OUTPUT_NAME tritonserver)
@@ -343,35 +352,35 @@ if(${TRITON_ENABLE_HTTP}
 
   list(APPEND
     HTTP_ENDPOINT_SRCS
-    http_server.cc
-    orca_http.cc
+    ${TRITON_SERVER_SOURCE_DIR}/http_server.cc
+    ${TRITON_SERVER_SOURCE_DIR}/orca_http.cc
   )
   list(APPEND
     HTTP_ENDPOINT_HDRS
-    http_server.h
-    orca_http.h
+    ${TRITON_SERVER_SOURCE_DIR}/http_server.h
+    ${TRITON_SERVER_SOURCE_DIR}/orca_http.h
   )
 
   # Add header / src files based on HTTP related endpoint requested
   if(${TRITON_ENABLE_SAGEMAKER})
     list(APPEND
       HTTP_ENDPOINT_SRCS
-      sagemaker_server.cc
+      ${TRITON_SERVER_SOURCE_DIR}/sagemaker_server.cc
     )
     list(APPEND
       HTTP_ENDPOINT_HDRS
-      sagemaker_server.h
+      ${TRITON_SERVER_SOURCE_DIR}/sagemaker_server.h
     )
   endif() # TRITON_ENABLE_SAGEMAKER
 
   if(${TRITON_ENABLE_VERTEX_AI})
     list(APPEND
       HTTP_ENDPOINT_SRCS
-      vertex_ai_server.cc
+      ${TRITON_SERVER_SOURCE_DIR}/vertex_ai_server.cc
     )
     list(APPEND
       HTTP_ENDPOINT_HDRS
-      vertex_ai_server.h
+      ${TRITON_SERVER_SOURCE_DIR}/vertex_ai_server.h
     )
   endif() # TRITON_ENABLE_VERTEX_AI
 
@@ -529,7 +538,8 @@ if(${TRITON_ENABLE_TRACING})
 
   add_library(
     tracing-library EXCLUDE_FROM_ALL
-    tracer.cc tracer.h
+    ${TRITON_SERVER_SOURCE_DIR}/tracer.cc
+    ${TRITON_SERVER_SOURCE_DIR}/tracer.h
   )
 
   target_compile_features(tracing-library PRIVATE cxx_std_${TRITON_MIN_CXX_STANDARD})
@@ -635,6 +645,9 @@ endif() # TRITON_ENABLE_TRACING
 #
 # simple
 #
+# These examples include CUDA headers unconditionally. Skip them for ROCm;
+# hipify copies are generated but not wired into this ExternalProject yet.
+if(NOT ${TRITON_ENABLE_ROCM})
 add_executable(
   simple
   simple.cc
@@ -737,6 +750,7 @@ install(
   TARGETS multi_server
   RUNTIME DESTINATION bin
 )
+endif() # NOT TRITON_ENABLE_ROCM
 
 if(${TRITON_ENABLE_GPU})
   #
@@ -786,8 +800,9 @@ if(${TRITON_ENABLE_GPU})
   )
 endif() # TRITON_ENABLE_GPU
 
-# tritonfrontend python package
-add_subdirectory(python)
-
-add_subdirectory(test test)
+# tritonfrontend python package and in-tree test backends
+if(NOT ${TRITON_ENABLE_ROCM})
+  add_subdirectory(python)
+  add_subdirectory(test test)
+endif() # NOT TRITON_ENABLE_ROCM
 

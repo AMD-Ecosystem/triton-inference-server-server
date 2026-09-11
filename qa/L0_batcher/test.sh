@@ -838,11 +838,21 @@ set -e
 kill_server
 
 # instance_queue_test: unit test for waiting_consumer_count_ merge accounting
-# (core dynamic-batcher / InstanceQueue path).
+# (core dynamic-batcher / InstanceQueue path). Installed next to tritonserver.
 INSTANCE_QUEUE_TEST_LOG="./instance_queue_test.log"
-INSTANCE_QUEUE_TEST_EXEC=./instance_queue_test
+INSTANCE_QUEUE_TEST_EXEC="./instance_queue_test"
+if [ ! -x "$INSTANCE_QUEUE_TEST_EXEC" ]; then
+    INSTANCE_QUEUE_TEST_EXEC="${TRITON_DIR}/bin/instance_queue_test"
+fi
+if [ ! -x "$INSTANCE_QUEUE_TEST_EXEC" ]; then
+    INSTANCE_QUEUE_TEST_EXEC="$(dirname "$SERVER")/instance_queue_test"
+fi
+INSTANCE_QUEUE_LIB_DIR="${TRITON_DIR}/lib"
+if [ ! -d "$INSTANCE_QUEUE_LIB_DIR" ]; then
+    INSTANCE_QUEUE_LIB_DIR="$(dirname "$SERVER")/../lib"
+fi
 set +e
-LD_LIBRARY_PATH=/opt/tritonserver/lib:$LD_LIBRARY_PATH $INSTANCE_QUEUE_TEST_EXEC >>$INSTANCE_QUEUE_TEST_LOG 2>&1
+LD_LIBRARY_PATH="${INSTANCE_QUEUE_LIB_DIR}:$LD_LIBRARY_PATH" $INSTANCE_QUEUE_TEST_EXEC >>$INSTANCE_QUEUE_TEST_LOG 2>&1
 if [ $? -ne 0 ]; then
     cat $INSTANCE_QUEUE_TEST_LOG
     echo -e "\n***\n*** Instance Queue Unit Test Failed\n***"
