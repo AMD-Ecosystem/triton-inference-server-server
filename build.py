@@ -3347,7 +3347,7 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="develop",
+        default="use_rocmlirtriton",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
@@ -3384,18 +3384,21 @@ if __name__ == "__main__":
         "--rocmlir-repo",
         required=False,
         type=str,
-        default="https://github.com/ROCm/rocMLIR.git",
+        default="https://github.com/ROCm/rocmlirTriton.git",
         help="rocMLIR git repo URL. rocMLIR (librockCompiler) is prebuilt once in "
         "its own cached Docker layer and MIGraphX links it instead of rebuilding "
-        "LLVM/MLIR from source. Used by onnxruntime backend.",
+        "LLVM/MLIR from source. NOTE: the use_rocmlirtriton MIGraphX branch pins the "
+        "ROCm/rocmlirTriton fork in its requirements.txt, so this defaults to that "
+        "fork; keep it in sync with the branch. Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--rocmlir-commit",
         required=False,
         type=str,
-        default="2e1e7abf4ec789e74e49e42018f852ea66e5ef85",
-        help="rocMLIR git commit to prebuild. MUST match the ROCm/rocMLIR@<sha> "
-        "pin in MIGraphX's requirements.txt for ABI compatibility. Used by "
+        default="649d0162c735b1260a63784a62bd9bd524db5b23",
+        help="rocMLIR git commit to prebuild. MUST match the ROCm/rocMLIR@<sha> or "
+        "ROCm/rocmlirTriton@<sha> pin in MIGraphX's requirements.txt for ABI "
+        "compatibility (the use_rocmlirtriton branch pins rocmlirTriton). Used by "
         "onnxruntime backend.",
     )
     parser.add_argument(
@@ -3419,7 +3422,7 @@ if __name__ == "__main__":
         "--migraphx-ep-branch",
         required=False,
         type=str,
-        default="reduce_compute_io_overhead",
+        default="main",
         help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git branch when "
         "building from source. Used by onnxruntime backend.",
     )
