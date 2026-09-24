@@ -79,7 +79,7 @@ DEFAULT_TRITON_VERSION_MAP = {
     "ort_openvino_version": "2026.3.0",
     "standalone_openvino_version": "2026.3.0",
     "dcgm_version": "4.6.1-1",
-    "vllm_version": "0.11.1",  # ROCm is using 0.19.0
+    "vllm_version": "0.11.1",  # ROCm 10.0.0 uses AMD vLLM 0.27.x wheels
     "rhel_py_version": "3.12.3",
 }
 
@@ -92,6 +92,26 @@ EXTRA_BACKEND_CMAKE_FLAGS = {}
 OVERRIDE_BACKEND_CMAKE_FLAGS = {}
 
 THIS_SCRIPT_DIR = os.path.dirname(os.path.abspath(getsourcefile(lambda: 0)))
+
+
+def rocm_local_src_bind_mounts():
+    """Bind local AMD backend/core trees into the builder when present.
+
+    Container-build clones GitHub otherwise, which would drop the pip-ORT
+    Dockerfile and EnsembleScheduler wrap. No new CLI flags.
+    """
+    mounts = []
+    ort = os.path.expanduser(
+        "~/triton_work/triton-inference-server-onnxruntime_backend"
+    )
+    core = os.path.expanduser(
+        "~/triton-inference-work/triton-inference-server-core"
+    )
+    if os.path.isdir(ort):
+        mounts.append((os.path.abspath(ort), "/mnt/onnxruntime_backend"))
+    if os.path.isdir(core):
+        mounts.append((os.path.abspath(core), "/mnt/core"))
+    return mounts
 
 
 def log(msg, force=False):
@@ -1335,7 +1355,8 @@ RUN wget -O /tmp/boost.tar.gz {FLAGS.boost_url} \\
 """
     else:
         df += """
-# Install boost (Ubuntu base has >= 1.78; provides BoostConfig.cmake)
+# Install boost (Ubuntu 24.04 apt is >= 1.78; Ubuntu 22.04 is 1.74 — headers
+# are replaced with 1.80 after the ROCm/PyTorch layers so core CMake passes.)
 RUN apt-get update \\
       && apt-get install -y --no-install-recommends libboost-dev \\
       && rm -rf /var/lib/apt/lists/*
@@ -1354,6 +1375,8 @@ RUN groupadd -f video && groupadd -f render
 ENV ROCM_PATH=/opt/rocm
 ENV HIP_PATH=/opt/rocm
 ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
+# Official ROCm 10 images omit this file; ORT/Triton CMake expect /^X.Y.Z-.*$/
+RUN mkdir -p /opt/rocm/.info && echo '10.0.0-0' > /opt/rocm/.info/version
 """
         pytorch_requested = any(
             b.split(":")[0] == "pytorch" for b in FLAGS.backend
@@ -1361,13 +1384,23 @@ ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
         if pytorch_requested:
             df += """
 # Install PyTorch for ROCm (needed by pytorch backend build)
-RUN pip3 install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/rocm7.2
+RUN pip3 install --no-cache-dir wheel && \\
+    pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
+      --extra-index-url https://pypi.org/simple \\
+      "torch[device-all]==2.13.0+rocm10.0.0" \\
+      "torchvision[device-all]==0.28.0+rocm10.0.0"
 
 # Create missing generated header required by PyTorch ROCm wheel
 RUN TORCH_INC=$(python3 -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'include'))") && \\
     mkdir -p "${TORCH_INC}/c10/cuda/impl" && \\
     printf '#pragma once\\n#define C10_CUDA_BUILD_SHARED_LIBS\\n' \\
       > "${TORCH_INC}/c10/cuda/impl/cuda_cmake_macros.h"
+"""
+        # ROCm 10: hip_runtime.h lives under /opt/rocm/include (core-10.0).
+        # Hipified sources are compiled with g++, which does not get hipcc -I.
+        df += """
+ENV CPATH=/opt/rocm/include
+ENV CPLUS_INCLUDE_PATH=/opt/rocm/include
 """
 
     df += """
@@ -1568,7 +1601,10 @@ ENV UCX_MEM_EVENTS no
         if enable_rocm:
             df += """
 # Install PyTorch ROCm wheel in the production container for runtime libs
-RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/rocm7.2
+RUN pip3 install --no-cache-dir wheel && \\
+    pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
+      --extra-index-url https://pypi.org/simple \\
+      "torch[device-all]==2.13.0+rocm10.0.0"
 
 # Add PyTorch libs to linker search path:
 #   ldconfig  — indexes versioned .so files (e.g. libtorch_hip.so.1)
@@ -1701,11 +1737,14 @@ RUN ln -sf ${_CUDA_COMPAT_PATH}/lib.real ${_CUDA_COMPAT_PATH}/lib \\
 """
     elif enable_rocm:
         df += """
-# ROCm, MIGraphX, and ONNX Runtime already installed in base image
-# Set ROCm environment variables for runtime
+# ROCm runtime: HIP lives under /opt/rocm/lib; tritonserver and the
+# onnxruntime backend need it on the default linker path.
 ENV ROCM_PATH=/opt/rocm
 ENV HIP_PATH=/opt/rocm
 ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH}
+RUN echo /opt/rocm/lib > /etc/ld.so.conf.d/rocm.conf && ldconfig
+RUN mkdir -p /opt/rocm/.info && echo '10.0.0-0' > /opt/rocm/.info/version
 """
     else:
         df += add_cpu_libs_to_linux_dockerfile(backends, target_machine)
@@ -1944,12 +1983,14 @@ RUN tar -xvf /opt/_internal/static-libs-for-embedding-only.tar.xz \\
 
 def get_base_image_rocm_debian():
     """Return base image for ROCm Debian"""
-    return "localhost/debian12_rocm7.2.3"
+    # No Debian 12 ROCm 10.0.0 image is published yet; use the same
+    # Ubuntu 22.04 ROCm 10.0.0 runtime the Ubuntu path uses.
+    return "rocm/dev-ubuntu-22.04:10.0.0-full"
 
 
 def get_base_image_rocm_ubuntu():
     """Return base image for ROCm Ubuntu"""
-    return "localhost/ubuntu24.04_rocm7.2.3"
+    return "rocm/dev-ubuntu-24.04:10.0.0-full"
 
 
 def create_build_dockerfiles(
@@ -2113,6 +2154,9 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             runargs += ["-it"]
 
         runargs += ["-v", "/var/run/docker.sock:/var/run/docker.sock"]
+        if FLAGS.enable_rocm:
+            for src, dest in rocm_local_src_bind_mounts():
+                runargs += ["-v", "{}:{}:ro".format(src, dest)]
         if FLAGS.use_user_docker_config:
             if os.path.exists(FLAGS.use_user_docker_config):
                 runargs += [
@@ -2371,7 +2415,7 @@ def install_vllm():
 RUN apt-get update && apt-get install -y --no-install-recommends libopenmpi-dev && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --no-cache-dir uv
 RUN uv pip install --system --no-cache --break-system-packages vllm --pre \\
-        --extra-index-url https://wheels.vllm.ai/rocm/nightly/rocm721 \\
+        --extra-index-url https://rocm.frameworks.amd.com/whl-multi-arch/vllm/ \\
         --upgrade
 """
     return df
@@ -2402,8 +2446,18 @@ def backend_build(
         repository_name = "TensorRT-LLM"
         cmake_script.gitclone(repository_name, tag, be, github_organization)
     elif be == "onnxruntime" and FLAGS.enable_rocm:
-        # ROCm ONNX Runtime backend: use local dir from --onnxruntime-backend-dir if set, else clone
-        if getattr(FLAGS, "onnxruntime_backend_dir", None):
+        # Prefer the host tree bind-mounted at /mnt/onnxruntime_backend so
+        # pip-ORT Dockerfile.ort and the MIGraphX plugin loader are used.
+        if any(dest == "/mnt/onnxruntime_backend" for _, dest in rocm_local_src_bind_mounts()):
+            cmake_script.comment(
+                "Using bind-mounted ONNX Runtime backend from /mnt/onnxruntime_backend"
+            )
+            cmake_script.cmd(
+                "rm -rf onnxruntime && mkdir onnxruntime && "
+                "tar -C /mnt/onnxruntime_backend --exclude=build-rocm --exclude=.git -cf - . "
+                "| tar -C onnxruntime -xf -"
+            )
+        elif getattr(FLAGS, "onnxruntime_backend_dir", None):
             cmake_script.comment(
                 "Using local ONNX Runtime backend from --onnxruntime-backend-dir (mounted at {}/onnxruntime)".format(
                     build_dir
@@ -2649,10 +2703,14 @@ def cibase_build(
     if not FLAGS.no_core_build:
         cmake_script.cpdir(os.path.join(repo_install_dir, "bin"), ci_dir)
         cmake_script.mkdir(os.path.join(ci_dir, "lib"))
-        cmake_script.cp(
-            os.path.join(repo_install_dir, "lib", "libtritonrepoagent_relocation.so"),
-            os.path.join(ci_dir, "lib"),
+        # src/test is not built for ROCm, so the test-only relocation
+        # repo-agent is absent.
+        relocation_lib = os.path.join(
+            repo_install_dir, "lib", "libtritonrepoagent_relocation.so"
         )
+        cmake_script.cmd(f"if [[ -e {relocation_lib} ]]; then")
+        cmake_script.cp(relocation_lib, os.path.join(ci_dir, "lib"))
+        cmake_script.cmd("fi")
         cmake_script.cpdir(os.path.join(repo_install_dir, "python"), ci_dir)
 
     # Some of the backends are needed for CI testing
@@ -3152,7 +3210,7 @@ if __name__ == "__main__":
         "--ort-branch",
         required=False,
         type=str,
-        default="rocm7.2_internal_testing",
+        default="target_batch_compile",
         help="ONNX Runtime (ROCm) git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
@@ -3166,7 +3224,7 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="release/rocm-rel-7.2",
+        default="release/rocm-rel-10.0",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
@@ -3507,6 +3565,15 @@ if __name__ == "__main__":
             "backend": "rocm10.0.0_r26.09",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
             "thirdparty": "rocm10.0.0_r26.09",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
         }
+        if any(dest == "/mnt/core" for _, dest in rocm_local_src_bind_mounts()):
+            EXTRA_CORE_CMAKE_FLAGS.setdefault(
+                "FETCHCONTENT_SOURCE_DIR_REPO-CORE", "/mnt/core"
+            )
+        if "onnxruntime" not in EXTRA_BACKEND_CMAKE_FLAGS:
+            EXTRA_BACKEND_CMAKE_FLAGS["onnxruntime"] = {}
+        EXTRA_BACKEND_CMAKE_FLAGS["onnxruntime"].setdefault(
+            "TRITON_ONNXRUNTIME_DOCKER_CACHE_ARGS", ""
+        )
     else:
         components = {
             "common": default_repo_tag,

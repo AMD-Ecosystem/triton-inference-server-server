@@ -63,56 +63,72 @@ The following table lists the ROCm-enabled Triton Inference Server component rep
 
 ## Build Triton Inference Server
 
-### On Ubuntu 24.04
+### On Ubuntu 24.04 (ROCm 10.0.0, this branch)
+
+**API impact: none.** Same `build.py` flags as NVIDIA container builds; no new kwargs or env vars.
+
+This is the release recipe for **Ubuntu 24.04 + ROCm 10.0.0 + Triton + onnxruntime** (MIGraphX EP via AMD pip). `build.py` generates `Dockerfile.buildbase` / `Dockerfile` / `Dockerfile.cibase` at build time. Base image: `rocm/dev-ubuntu-24.04:10.0.0-full` (Composable Kernel is already in that tag).
 
 #### Prerequisites
 
-- Docker installed and running
-- AMD GPU with ROCm support
-- ROCm 7.2.3 or compatible version installed on the host
+- Docker installed and running, with access to `/var/run/docker.sock` (nested ORT image)
+- AMD GPU with ROCm 10.0.0 (or compatible) on the host
+- Clone **this** branch from AMD-Ecosystem (`rocm10.0.0_r26.09`)
 
-The following instructions are for building on **Ubuntu 24.04** with ROCm 7.2.3.
+#### Optional thin base
 
-Step1: build base docker image with Ubuntu 24.04+ROCm7.2.3+deps
+Not required. Use only if you want a locally tagged image with extra apt deps and HIP on `LD_LIBRARY_PATH`:
+
 ```bash
-git clone -b rocm7.2.3_r25.12 https://github.com/ROCm/triton-inference-server-server.git
+git clone -b rocm10.0.0_r26.09 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
-bash scripts/build_ubuntu24.04_rocm_723_base.sh
+bash scripts/build_ubuntu24.04_rocm_10_base.sh
+# then: python3 build.py ... --image=base,localhost/ubuntu24.04_rocm10.0.0
 ```
-Step2: build tritonserver docker image
+
+#### Product image (onnxruntime)
 
 ```bash
 cd triton-inference-server-server
 python3 build.py \
+  --enable-rocm \
+  --linux-distro ubuntu \
+  --no-container-interactive \
   --no-container-pull \
   --enable-logging \
   --enable-stats \
-  --enable-tracing \
-  --enable-rocm \
   --enable-metrics \
-  --verbose \
-  --endpoint=grpc \
-  --endpoint=http \
-  --backend=onnxruntime \
-  --backend=python \
-  --backend=vllm \
-  --backend=pytorch \
-  --backend=tensorflow \
-  --linux-distro=ubuntu
+  --enable-cpu-metrics \
+  --enable-tracing \
+  --endpoint http \
+  --endpoint grpc \
+  --backend onnxruntime
 ```
 
-**Build Options Explained:**
-- `--enable-rocm`: Enable ROCm support
-- `--endpoint=grpc --endpoint=http`: Enable both HTTP and gRPC inference protocols
-- `--backend=onnxruntime`: Build with onnxruntime backend
-- `--backend=python`: Build with python backend
-- `--backend=vllm`: Build with vllm backend (vllm engine installed)
-- `--backend=pytorch`: Build with pytorch backend
-- `--backend=tensorflow`: Build with tensorflow backend
-- `--linux-distro`: Build on Ubuntu 24.04 OS
+Tags **`tritonserver:latest`**. Nested image `tritonserver_onnxruntime` installs **onnxruntime 1.29** and **MIGraphX 2.17** from AMD pip (`onnxruntime-ep-migraphx`).
 
+Python, PyTorch, vLLM, and TensorFlow backends are **not** in this command. vLLM’s ROCm 10 wheel is cp314; this base is Python 3.12. TensorFlow stays on `rocm7.2.3_r24.03`.
 
-*The above example builds tritonserver artifact with both onnxruntime and python backends.
+**Build options:**
+- `--enable-rocm`: HIP/ROCm (do not also pass CUDA `--enable-gpu`)
+- `--linux-distro ubuntu`: Ubuntu 24.04 ROCm 10.0.0-full
+- `--backend onnxruntime`: Triton ONNX Runtime backend + MIGraphX EP
+
+#### Run
+
+```bash
+docker run --rm \
+  --device=/dev/kfd \
+  --device=/dev/dri \
+  --group-add video \
+  --group-add render \
+  --ipc=host \
+  -p 8000:8000 -p 8001:8001 -p 8002:8002 \
+  -e LD_LIBRARY_PATH=/opt/rocm/lib \
+  -v /path/to/model_repository:/models \
+  tritonserver:latest \
+  tritonserver --model-repository=/models
+```
 
 
 
@@ -187,12 +203,13 @@ docker run \
   -p 8001:8001 \
   -p 8002:8002 \
   --net=host \
+  -e LD_LIBRARY_PATH=/opt/rocm/lib \
   -e ORT_MIGRAPHX_MODEL_CACHE_PATH=/migraphx_cache \
   -e ORT_MIGRAPHX_CACHE_PATH=/migraphx_cache \
   -v /path/to/your/model_repository/on/host:/models \
   -v /path/to/your/migraphx_cache_save_dir/on/host:/migraphx_cache \
-  tritonserver \
-  tritonserver --model-repository=/models --exit-on-error=false
+  tritonserver:latest \
+  tritonserver --model-repository=/models
 ```
 
 **Important Parameters:**

@@ -282,6 +282,14 @@ else()
   set(_TRITON_EP_HIPIFIED_SOURCES_DIR "")
 endif() # TRITON_ENABLE_ROCM
 
+# Docker ROCm builds bind local core at /mnt/core. Do not pin /src/core
+# (host layout) or /src/backend (missing in the builder); backend clones.
+set(_TRITON_SERVER_FC_ARGS)
+if(EXISTS "/mnt/core")
+  list(APPEND _TRITON_SERVER_FC_ARGS
+    -DFETCHCONTENT_SOURCE_DIR_REPO-CORE:PATH=/mnt/core)
+endif()
+
 ExternalProject_Add(triton-server
   PREFIX triton-server
   SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -344,6 +352,10 @@ ExternalProject_Add(triton-server
     -DTRITON_MIN_CXX_STANDARD:STRING=${TRITON_MIN_CXX_STANDARD}
     -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
     -DCMAKE_INSTALL_PREFIX:PATH=${TRITON_INSTALL_PREFIX}
+    -DCMAKE_PREFIX_PATH:PATH=/opt/rocm
+    "-DCMAKE_CXX_FLAGS:STRING=-I/opt/rocm/include"
+    -Dhip_DIR:PATH=/opt/rocm/lib/cmake/hip
+    ${_TRITON_SERVER_FC_ARGS}
     -DTRITON_VERSION:STRING=${TRITON_VERSION}
     -DTRITON_LINUX_DISTRO:STRING=${TRITON_LINUX_DISTRO}
   DEPENDS ${TRITON_DEPENDS}
