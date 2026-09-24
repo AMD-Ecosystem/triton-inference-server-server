@@ -872,9 +872,11 @@ if(${TRITON_ENABLE_GPU} OR ${TRITON_ENABLE_ROCM})
   )
 endif() # TRITON_ENABLE_GPU || TRITON_ENABLE_ROCM
 
-# tritonfrontend python package and in-tree test backends
+# tritonfrontend python package
+add_subdirectory(python)
+
+# In-tree test backends; their sources are not hipified yet.
 if(NOT ${TRITON_ENABLE_ROCM})
-  add_subdirectory(python)
   add_subdirectory(test test)
 endif() # NOT TRITON_ENABLE_ROCM
 

@@ -1,0 +1,57 @@
+#
+# Ubuntu 24.04 + ROCm 10.0.0 + Python 3.12 thin base.
+# Optional: docker build -t localhost/ubuntu24.04_rocm10.0.0 \
+#   -f Dockerfile.ubuntu24.04_rocm10.0.0 .
+# python3 build.py --enable-rocm uses rocm/dev-ubuntu-24.04:10.0.0-full
+# directly; pass --image=base,localhost/ubuntu24.04_rocm10.0.0 to use this.
+#
+
+FROM rocm/dev-ubuntu-24.04:10.0.0-full
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /workspace
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        locales \
+        ca-certificates \
+        wget \
+        gnupg2 \
+        curl \
+        software-properties-common \
+        build-essential \
+        git \
+        pkg-config && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libevent-2.1-7 \
+        libevent-core-2.1-7 \
+        libevent-pthreads-2.1-7 \
+        libevent-dev \
+        libb64-0d \
+        libcurl4-openssl-dev \
+        libre2-10 \
+        libre2-dev \
+        libnuma-dev \
+        libnuma1 \
+        libgoogle-perftools-dev \
+        libjemalloc-dev \
+        libboost-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Official ROCm 10 images omit this file; some tools expect /^X.Y.Z-.*$/
+RUN mkdir -p /opt/rocm/.info && echo '10.0.0-0' > /opt/rocm/.info/version
+
+ENV ROCM_PATH=/opt/rocm
+ENV HIP_PATH=/opt/rocm
+ENV PATH=/opt/rocm/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH}
+ENV CPATH=/opt/rocm/include
+ENV CPLUS_INCLUDE_PATH=/opt/rocm/include

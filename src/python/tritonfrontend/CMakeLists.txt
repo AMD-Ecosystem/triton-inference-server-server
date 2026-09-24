@@ -56,13 +56,13 @@ FetchContent_MakeAvailable(pybind11)
 # ================== Collect the Dependencies ===============================
 set(
   PYTHON_FRONTEND_BINDING_DEPS
-  ../../shared_memory_manager.h
-  ../../shared_memory_manager.cc
-  ../../data_compressor.h
-  ../../restricted_features.h
-  ../../classification.cc
-  ../../common.h
-  ../../common.cc
+  ${TRITON_SERVER_SOURCE_DIR}/shared_memory_manager.h
+  ${TRITON_SERVER_SOURCE_DIR}/shared_memory_manager.cc
+  ${TRITON_SERVER_SOURCE_DIR}/data_compressor.h
+  ${TRITON_SERVER_SOURCE_DIR}/restricted_features.h
+  ${TRITON_SERVER_SOURCE_DIR}/classification.cc
+  ${TRITON_SERVER_SOURCE_DIR}/common.h
+  ${TRITON_SERVER_SOURCE_DIR}/common.cc
 )
 
 set(PY_BINDING_DEPENDENCY_LIBS
