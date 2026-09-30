@@ -816,10 +816,12 @@ def onnxruntime_cmake_args(images, library_paths):
                 FLAGS.migraphx_package_version,
             )
         )
-        # rocMLIR (librockCompiler) source. Prebuilt once into its own cached
-        # Docker layer so the expensive LLVM/MLIR compile is decoupled from the
-        # MIGraphX/EP source; MIGraphX links the prebuilt rocMLIR instead of
-        # rebuilding it. The commit must match MIGraphX's requirements.txt pin.
+        # rocmlirTriton (librockCompiler) source. Prebuilt once into its own
+        # cached Docker layer so the expensive LLVM/MLIR compile is decoupled
+        # from the MIGraphX/EP source; MIGraphX links the prebuilt rocMLIR
+        # package instead of rebuilding it. The commit must be the
+        # ROCm/rocmlirTriton ref in MIGraphX's requirements.txt, or a commit
+        # on that ref.
         cargs.append(
             cmake_backend_arg(
                 "onnxruntime",
@@ -2523,7 +2525,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "onnxruntime_backend",
-                "plugin-ep-swap",
+                "rocm10.1_changes",
                 be,
                 "https://github.com/TedThemistokleous/",
             )
@@ -3347,7 +3349,7 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="use_rocmlirtriton",
+        default="release/rocm-rel-10.1",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
@@ -3374,7 +3376,7 @@ if __name__ == "__main__":
         "--migraphx-package-version",
         required=False,
         type=str,
-        default="2.17.0+rocm10.0.0",
+        default="2.18.0+rocm10.1.0",
         help="Version tag of the prebuilt amdrocm-migraphx packages (used when "
         "--migraphx-build-mode=package). Must match the base image ROCm train "
         "(e.g. 2.17.0 => rocm10.0.0) and Debian release (debian12). Used by "
@@ -3385,21 +3387,22 @@ if __name__ == "__main__":
         required=False,
         type=str,
         default="https://github.com/ROCm/rocmlirTriton.git",
-        help="rocMLIR git repo URL. rocMLIR (librockCompiler) is prebuilt once in "
-        "its own cached Docker layer and MIGraphX links it instead of rebuilding "
-        "LLVM/MLIR from source. NOTE: the use_rocmlirtriton MIGraphX branch pins the "
-        "ROCm/rocmlirTriton fork in its requirements.txt, so this defaults to that "
-        "fork; keep it in sync with the branch. Used by onnxruntime backend.",
+        help="rocmlirTriton git repo URL. rocmlirTriton (librockCompiler) is "
+        "prebuilt once in its own cached Docker layer and MIGraphX links it "
+        "instead of rebuilding LLVM/MLIR from source. AMDMIGraphX "
+        "release/rocm-rel-10.1 pins ROCm/rocmlirTriton in requirements.txt. "
+        "Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--rocmlir-commit",
         required=False,
         type=str,
-        default="649d0162c735b1260a63784a62bd9bd524db5b23",
-        help="rocMLIR git commit to prebuild. MUST match the ROCm/rocMLIR@<sha> or "
-        "ROCm/rocmlirTriton@<sha> pin in MIGraphX's requirements.txt for ABI "
-        "compatibility (the use_rocmlirtriton branch pins rocmlirTriton). Used by "
-        "onnxruntime backend.",
+        default="f347064fea12aa0ab325e1244b65766652a2530c",
+        help="rocmlirTriton git commit to prebuild. Freeze a commit from the "
+        "ROCm/rocmlirTriton ref named in AMDMIGraphX requirements.txt "
+        "(release/rocm-rel-10.1). A branch name is accepted by git fetch, but "
+        "it will not invalidate the Docker layer when that branch moves. "
+        "Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--onnxruntime-backend-dir",
