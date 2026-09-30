@@ -2416,7 +2416,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-onnxruntime_backend",
-                "rocm10.0.0_r26.09",
+                "rocm10.0.0_r26.10",
                 be,
                 "https://github.com/AMD-Ecosystem",
             )
@@ -2424,7 +2424,7 @@ def backend_build(
         # Use AMD-specific python_backend fork for ROCm support
         cmake_script.gitclone(
             "triton-inference-server-python_backend",
-            "rocm10.0.0_r26.09",
+            "rocm10.0.0_r26.10",
             "python",
             "https://github.com/AMD-Ecosystem",
         )
@@ -2432,7 +2432,7 @@ def backend_build(
         # Use AMD-specific pytorch_backend fork for ROCm support
         cmake_script.gitclone(
             "triton-inference-server-pytorch_backend",
-            "rocm10.0.0_r26.09",
+            "rocm10.0.0_r26.10",
             "pytorch",
             "https://github.com/AMD-Ecosystem",
         )
@@ -3522,9 +3522,9 @@ if __name__ == "__main__":
     if FLAGS.enable_rocm:
         components = {
             "common": default_repo_tag,
-            "core": "rocm10.0.0_r26.09",  # https://github.com/AMD-Ecosystem/triton-inference-server-core
-            "backend": "rocm10.0.0_r26.09",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
-            "thirdparty": "rocm10.0.0_r26.09",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
+            "core": "rocm10.0.0_r26.10",  # https://github.com/AMD-Ecosystem/triton-inference-server-core
+            "backend": "rocm10.0.0_r26.10",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
+            "thirdparty": "rocm10.0.0_r26.10",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
         }
         if any(dest == "/mnt/core" for _, dest in rocm_local_src_bind_mounts()):
             EXTRA_CORE_CMAKE_FLAGS.setdefault(
@@ -3674,7 +3674,7 @@ if __name__ == "__main__":
             if be == "vllm":
                 if FLAGS.enable_rocm:
                     github_organization = "https://github.com/AMD-Ecosystem"
-                    backends[be] = "rocm10.0.0_r26.09"
+                    backends[be] = "rocm10.0.0_r26.10"
                 backend_clone(
                     be,
                     cmake_script,
