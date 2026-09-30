@@ -50,14 +50,14 @@ The following table lists the ROCm-enabled Triton Inference Server component rep
 
 | Component | Repository | Branch |
 |-----------|------------|--------|
-| Server | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server/tree/rocm10.0.0_r26.09) | `rocm10.0.0_r26.09` |
-| Core | [AMD-Ecosystem/triton-inference-server-core](https://github.com/AMD-Ecosystem/triton-inference-server-core/tree/rocm10.0.0_r26.09) | `rocm10.0.0_r26.09` |
-| Backend | [AMD-Ecosystem/triton-inference-server-backend](https://github.com/AMD-Ecosystem/triton-inference-server-backend/tree/rocm10.0.0_r26.09) | `rocm10.0.0_r26.09` |
-| Third Party | [AMD-Ecosystem/triton-inference-server-third_party](https://github.com/AMD-Ecosystem/triton-inference-server-third_party/tree/rocm10.0.0_r26.09) | `rocm10.0.0_r26.09` |
-| ONNX Runtime Backend | [AMD-Ecosystem/triton-inference-server-onnxruntime_backend](https://github.com/AMD-Ecosystem/triton-inference-server-onnxruntime_backend/tree/rocm10.0.0_r26.09) | `rocm10.0.0_r26.09` |
-| Python Backend | [AMD-Ecosystem/triton-inference-server-python_backend](https://github.com/AMD-Ecosystem/triton-inference-server-python_backend/tree/rocm10.0.0_r26.09) | `rocm10.0.0_r26.09` |
-| vLLM Backend | [AMD-Ecosystem/triton-inference-server-vllm_backend](https://github.com/AMD-Ecosystem/triton-inference-server-vllm_backend/tree/rocm10.0.0_r26.09) | `rocm10.0.0_r26.09` |
-| Pytorch Backend | [AMD-Ecosystem/triton-inference-server-pytorch_backend](https://github.com/AMD-Ecosystem/triton-inference-server-pytorch_backend/tree/rocm10.0.0_r26.09) | `rocm10.0.0_r26.09` |
+| Server | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
+| Core | [AMD-Ecosystem/triton-inference-server-core](https://github.com/AMD-Ecosystem/triton-inference-server-core/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
+| Backend | [AMD-Ecosystem/triton-inference-server-backend](https://github.com/AMD-Ecosystem/triton-inference-server-backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
+| Third Party | [AMD-Ecosystem/triton-inference-server-third_party](https://github.com/AMD-Ecosystem/triton-inference-server-third_party/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
+| ONNX Runtime Backend | [AMD-Ecosystem/triton-inference-server-onnxruntime_backend](https://github.com/AMD-Ecosystem/triton-inference-server-onnxruntime_backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
+| Python Backend | [AMD-Ecosystem/triton-inference-server-python_backend](https://github.com/AMD-Ecosystem/triton-inference-server-python_backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
+| vLLM Backend | [AMD-Ecosystem/triton-inference-server-vllm_backend](https://github.com/AMD-Ecosystem/triton-inference-server-vllm_backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
+| Pytorch Backend | [AMD-Ecosystem/triton-inference-server-pytorch_backend](https://github.com/AMD-Ecosystem/triton-inference-server-pytorch_backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
 | Tensorflow Backend | [ROCm/triton-inference-server-tensorflow_backend](https://github.com/ROCm/triton-inference-server-tensorflow_backend/tree/rocm7.2.3_r24.03) | `rocm7.2.3_r24.03` |
 
 
@@ -73,14 +73,14 @@ This is the release recipe for **Ubuntu 24.04 + ROCm 10.0.0 + Triton + onnxrunti
 
 - Docker installed and running, with access to `/var/run/docker.sock` (nested ORT image)
 - AMD GPU with ROCm 10.0.0 (or compatible) on the host
-- Clone **this** branch from AMD-Ecosystem (`rocm10.0.0_r26.09`)
+- Clone **this** branch from AMD-Ecosystem (`rocm10.0.0_r26.10`)
 
 #### Optional thin base
 
 Not required. Use only if you want a locally tagged image with extra apt deps and HIP on `LD_LIBRARY_PATH`:
 
 ```bash
-git clone -b rocm10.0.0_r26.09 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
+git clone -b rocm10.0.0_r26.10 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
 bash scripts/build_ubuntu24.04_rocm_10_base.sh
 # then: python3 build.py ... --image=base,localhost/ubuntu24.04_rocm10.0.0
