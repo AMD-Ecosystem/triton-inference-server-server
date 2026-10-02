@@ -71,6 +71,7 @@ Each backend is a separate image. `build.py` compiles the server and that backen
 | --- | --- | --- |
 | ONNX Runtime | `Dockerfile.onnxruntime-rocm` | `tritonserver:rocm10.0.0-onnxruntime` |
 | Python | `Dockerfile.python-rocm` | `tritonserver:rocm10.0.0-python` |
+| PyTorch | `Dockerfile.pytorch-rocm` | `tritonserver:rocm10.0.0-pytorch` |
 | vLLM | `Dockerfile.vllm-rocm` | `tritonserver:rocm10.0.0-vllm` |
 
 ### Prerequisites
@@ -185,6 +186,51 @@ docker run --rm \
   -e LD_LIBRARY_PATH=/opt/rocm/lib \
   -v /path/to/model_repository:/models \
   tritonserver:rocm10.0.0-python \
+  tritonserver --model-repository=/models
+```
+
+### PyTorch
+
+`build.py` clones `triton-inference-server-pytorch_backend` and hipifies the CUDA sources with `hipify-perl` before compiling `libtriton_pytorch.so`. The build sets `PYTORCH_ROCM_ARCH=gfx942` and installs `torch[device-all]==2.13.0+rocm10.0.0`. Models use `platform: "pytorch_libtorch"`.
+
+```bash
+git clone -b rocm10.0.0_r26.10 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
+cd triton-inference-server-server
+python3 build.py \
+  --enable-rocm \
+  --linux-distro ubuntu \
+  --no-container-interactive \
+  --no-container-pull \
+  --enable-logging \
+  --enable-stats \
+  --enable-metrics \
+  --enable-cpu-metrics \
+  --enable-tracing \
+  --endpoint http \
+  --endpoint grpc \
+  --backend pytorch
+docker tag tritonserver:latest tritonserver:rocm10.0.0-pytorch
+```
+
+To rebuild only the production stage after `build/install` exists:
+
+```bash
+docker build -t tritonserver:rocm10.0.0-pytorch -f Dockerfile.pytorch-rocm .
+```
+
+Run the PyTorch image:
+
+```bash
+docker run --rm \
+  --device=/dev/kfd \
+  --device=/dev/dri \
+  --group-add video \
+  --group-add render \
+  --ipc=host \
+  -p 8000:8000 -p 8001:8001 -p 8002:8002 \
+  -e LD_LIBRARY_PATH=/opt/rocm/lib \
+  -v /path/to/model_repository:/models \
+  tritonserver:rocm10.0.0-pytorch \
   tritonserver --model-repository=/models
 ```
 

@@ -1404,6 +1404,10 @@ RUN TORCH_INC=$(python3 -c "import torch; import os; print(os.path.join(os.path.
     mkdir -p "${TORCH_INC}/c10/cuda/impl" && \\
     printf '#pragma once\\n#define C10_CUDA_BUILD_SHARED_LIBS\\n' \\
       > "${TORCH_INC}/c10/cuda/impl/cuda_cmake_macros.h"
+
+# LibTorch's ROCm CMake refuses to configure unless an arch is set.
+# gfx942 covers MI300 / MI325.
+ENV PYTORCH_ROCM_ARCH=gfx942
 """
         if any(b.split(":")[0] == "vllm" for b in FLAGS.backend):
             # The python backend stub is linked in this image. vLLM's ROCm 10
@@ -1635,9 +1639,13 @@ RUN pip3 install --no-cache-dir wheel && \\
 #   ldconfig  — indexes versioned .so files (e.g. libtorch_hip.so.1)
 #   LD_LIBRARY_PATH — needed for unversioned .so files (e.g. libgomp.so)
 RUN TORCH_LIB=$(python3 -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))") \
-    && echo "$TORCH_LIB" > /etc/ld.so.conf.d/pytorch.conf && ldconfig \
+    && printf '%s\n' \
+         "$TORCH_LIB" \
+         /opt/rocm/core-10.0/lib/host-math/lib \
+         /opt/rocm/core-10.0/lib/rocm_sysdeps/lib \
+         > /etc/ld.so.conf.d/pytorch.conf && ldconfig \
     && ln -sf "$TORCH_LIB" /opt/pytorch_lib
-ENV LD_LIBRARY_PATH /opt/pytorch_lib:${LD_LIBRARY_PATH}
+ENV LD_LIBRARY_PATH /opt/pytorch_lib:/opt/rocm/core-10.0/lib/host-math/lib:/opt/rocm/core-10.0/lib/rocm_sysdeps/lib:${LD_LIBRARY_PATH}
 """
         else:
             df += """
