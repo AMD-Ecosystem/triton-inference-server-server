@@ -634,6 +634,15 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
     elif FLAGS.enable_gpu:
         cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_MEMORY_TRACKER", True))
 
+    if (
+        be == "python"
+        and FLAGS.enable_rocm
+        and any(b.split(":")[0] == "vllm" for b in FLAGS.backend)
+    ):
+        cargs.append(
+            cmake_backend_arg(be, "PYBIND11_PYTHON_VERSION", "STRING", "3.14")
+        )
+
     cargs += cmake_backend_extra_args(be)
     if be == "tensorrtllm":
         cargs.append("-S ../triton_backend/inflight_batcher_llm -B .")
@@ -1396,6 +1405,10 @@ RUN TORCH_INC=$(python3 -c "import torch; import os; print(os.path.join(os.path.
     printf '#pragma once\\n#define C10_CUDA_BUILD_SHARED_LIBS\\n' \\
       > "${TORCH_INC}/c10/cuda/impl/cuda_cmake_macros.h"
 """
+        if any(b.split(":")[0] == "vllm" for b in FLAGS.backend):
+            # The python backend stub is linked in this image. vLLM's ROCm 10
+            # wheel is cp314, so the stub must link libpython3.14.
+            df += install_rocm_python314()
         # ROCm 10: hip_runtime.h lives under /opt/rocm/include (core-10.0).
         # Hipified sources are compiled with g++, which does not get hipcc -I.
         df += """
@@ -1478,7 +1491,13 @@ ARG TRITON_CONTAINER_VERSION={}
         argmap["TRITON_VERSION"],
         argmap["TRITON_CONTAINER_VERSION"],
     )
-    if "vllm" in backends and argmap["INFERENCE_IMAGE"] is None:
+    # CUDA vLLM images are not the ROCm production base. On ROCm, vLLM is
+    # installed into the ROCm image (Python 3.14) by install_vllm().
+    if (
+        "vllm" in backends
+        and argmap["INFERENCE_IMAGE"] is None
+        and not FLAGS.enable_rocm
+    ):
         argmap[
             "INFERENCE_IMAGE"
         ] = f"nvcr.io/nvidia/vllm:{FLAGS.upstream_container_version}-py3"
@@ -1520,7 +1539,8 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
     df += f"""
 WORKDIR /opt
 COPY build/install tritonserver
-
+"""
+    df += f"""
 WORKDIR /opt/tritonserver
 COPY NVIDIA_Deep_Learning_Container_License.pdf .
 # TRI-1118 — fail fast if either tritonserver or tritonfrontend wheel is
@@ -1536,11 +1556,16 @@ RUN set -e; \\
         echo "ERROR: ${{pkg}}-*.whl missing from /opt/tritonserver/python -- build did not stage the wheel into the image" >&2; \\
         exit 1; \\
       fi; \\
-      printf '%s\\n' "$wheels" | xargs -I {{}} pip install --upgrade "{{}}[{FLAGS.triton_wheels_dependencies_group}]"; \\
+      printf '%s\\n' "$wheels" | xargs -I {{}} python3 -m pip install --upgrade "{{}}[{FLAGS.triton_wheels_dependencies_group}]"; \\
     done
 
 RUN pip3 install -r python/openai/requirements.txt
 
+"""
+    if FLAGS.enable_rocm and "vllm" in backends:
+        df += """
+COPY docker/rocm_vllm_runtime.sh /tmp/rocm_vllm_runtime.sh
+RUN bash /tmp/rocm_vllm_runtime.sh && rm /tmp/rocm_vllm_runtime.sh
 """
     if not FLAGS.no_core_build:
         # Add feature labels for SageMaker endpoint
@@ -2408,15 +2433,42 @@ def tensorrtllm_postbuild(cmake_script, repo_install_dir, tensorrtllm_be_dir):
     )
 
 
+def install_rocm_python314():
+    """Dockerfile fragment: CPython 3.14 next to the image Python 3.12.
+
+    The ROCm 10 vLLM wheel on the AMD index is cp314. python3 on PATH stays
+    3.12 so the rest of the ROCm image is unchanged.
+    """
+    return """
+# vLLM ROCm 10 wheels are cp314. Keep python3 as 3.12 and add 3.14.
+RUN apt-get update \\
+      && apt-get install -y --no-install-recommends software-properties-common \\
+      && add-apt-repository -y ppa:deadsnakes/ppa \\
+      && apt-get update \\
+      && apt-get install -y --no-install-recommends \\
+            python3.14 \\
+            python3.14-dev \\
+            python3.14-venv \\
+      && python3.14 -m ensurepip --altinstall \\
+      && python3.14 -m pip install --upgrade --ignore-installed pip \\
+      && rm -rf /var/lib/apt/lists/*
+"""
+
+
 def install_vllm():
-    """Return Dockerfile fragment to install vLLM for ROCm."""
-    df = """
-# Install vLLM pre-built wheel for ROCm
+    """Return Dockerfile fragment to install vLLM for ROCm into Python 3.14."""
+    df = install_rocm_python314()
+    df += """
+# Install vLLM pre-built wheel for ROCm into Python 3.14, plus matching torch.
 RUN apt-get update && apt-get install -y --no-install-recommends libopenmpi-dev && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --no-cache-dir uv
-RUN uv pip install --system --no-cache --break-system-packages vllm --pre \\
-        --extra-index-url https://rocm.frameworks.amd.com/whl-multi-arch/vllm/ \\
-        --upgrade
+RUN python3.14 -m pip install --no-cache-dir \\
+      --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
+      --extra-index-url https://pypi.org/simple \\
+      "torch[device-gfx942]==2.13.0+rocm10.0.0"
+# Install the ROCm wheel, skip amd-quark, remove CUDA packages, and compile
+# the native extensions against this torch.
+COPY docker/rocm_vllm_extensions.sh /tmp/rocm_vllm_extensions.sh
+RUN bash /tmp/rocm_vllm_extensions.sh && rm /tmp/rocm_vllm_extensions.sh
 """
     return df
 
@@ -3403,11 +3455,16 @@ if __name__ == "__main__":
                 )
             )
             backends["python"] = backends["vllm"]
+        if FLAGS.enable_rocm and "ensemble" not in backends:
+            log(
+                "ROCm vLLM tests load an ensemble model, enabling ensemble support in the server"
+            )
+            backends["ensemble"] = default_repo_tag
 
     # ROCm: warn about backends that are not yet enabled
     if FLAGS.enable_rocm and backends:
         backend_names = list(backends.keys())
-        rocm_enabled = ("onnxruntime", "python", "pytorch", "vllm", "tensorflow")
+        rocm_enabled = ("onnxruntime", "python", "pytorch", "vllm", "tensorflow", "ensemble")
         not_enabled = [b for b in backend_names if b not in rocm_enabled]
         if not_enabled:
             print(
