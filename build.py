@@ -3349,7 +3349,7 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="release/rocm-rel-10.1",
+        default="remove_output_concats2",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
@@ -3425,7 +3425,7 @@ if __name__ == "__main__":
         "--migraphx-ep-branch",
         required=False,
         type=str,
-        default="main",
+        default="cleanup_pad_slice_overhead",
         help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git branch when "
         "building from source. Used by onnxruntime backend.",
     )
