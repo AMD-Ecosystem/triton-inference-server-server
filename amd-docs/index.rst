@@ -28,7 +28,7 @@ delivering efficient inference across all supported model types and frameworks o
   `https://github.com/AMD-Ecosystem/triton-inference-server-server <https://github.com/AMD-Ecosystem/triton-inference-server-server>`__ repository.
 
 Triton Inference Server is part of the `AMD LLM Extension toolkit
-<https://rocm.docs.amd.com/projects/rocm-llmext/en/docs-26.03/>`__.
+<https://rocm.docs.amd.com/projects/llmextension/en/docs-26.03/>`__.
 
 The Triton Inference Server public repository is located at `https://github.com/AMD-Ecosystem/triton-inference-server-server <https://github.com/AMD-Ecosystem/triton-inference-server-server>`__.
 
