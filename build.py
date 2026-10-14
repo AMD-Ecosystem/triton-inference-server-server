@@ -2023,7 +2023,7 @@ LABEL com.nvidia.build.ref={}
 
 def get_base_image_rocm_debian():
     """Return base image for ROCm Debian"""
-    return "localhost/debian12_rocm10.0.0"
+    return "localhost/debian12_rocm10.1.0"
 
 
 def get_base_image_rocm_ubuntu():
