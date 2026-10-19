@@ -1938,6 +1938,11 @@ def get_base_image_rocm_ubuntu():
     return "localhost/ubuntu24.04_rocm7.2.3"
 
 
+def get_migraphx_branch_rocm_debian():
+    """Return the MIGraphX branch matching the ROCm Debian base image (ROCm 7.14)"""
+    return "release/rocm-rel-7.14"
+
+
 def create_build_dockerfiles(
     container_build_dir, images, backends, repoagents, caches, endpoints
 ):
@@ -3218,8 +3223,10 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="develop",
-        help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
+        default=None,
+        help="MIGraphX git branch when building from source. Used by onnxruntime backend. "
+        "If not given, defaults to the MIGraphX release branch matching the ROCm base "
+        "image for the selected --linux-distro, falling back to 'develop'.",
     )
     parser.add_argument(
         "--standalone-openvino-version",
@@ -3351,6 +3358,26 @@ if __name__ == "__main__":
         else "r" + FLAGS.triton_container_version
     )
     log("default repo-tag: {}".format(default_repo_tag))
+
+    # MIGraphX is built from source by the onnxruntime backend. The Debian base
+    # image for this branch is ROCm 7.14, and MIGraphX "develop" no longer builds
+    # against it: develop has moved its rocMLIR dependency to ROCm/rocmlirTriton,
+    # which fails to compile on Debian 12. Default that path to the matching
+    # MIGraphX release branch instead, mirroring get_base_image_rocm_debian().
+    #
+    # Every other --linux-distro keeps the previous "develop" default unchanged;
+    # those paths were not verified here, so they are deliberately left as-is.
+    if FLAGS.migraphx_branch is None:
+        FLAGS.migraphx_branch = (
+            get_migraphx_branch_rocm_debian()
+            if FLAGS.linux_distro == "debian"
+            else "develop"
+        )
+    log(
+        "migraphx branch: {} (--linux-distro={})".format(
+            FLAGS.migraphx_branch, FLAGS.linux_distro
+        )
+    )
 
     # For other versions use the TRITON_VERSION_MAP unless explicitly
     # given.
