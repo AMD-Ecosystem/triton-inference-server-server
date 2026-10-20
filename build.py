@@ -1066,7 +1066,7 @@ def tensorflow_rocm_cmake_args():
         cmake_backend_arg("tensorflow",
             "TRITON_TENSORFLOW_DOCKER_IMAGE",
             None,
-            "localhost/debian12_rocm7.14.0_tensorflow"
+            "localhost/debian12_rocm10.1.0_tensorflow"
         )
     )
     return cargs
@@ -1391,10 +1391,23 @@ ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
                 b.split(":")[0] == "pytorch" for b in FLAGS.backend
             )
             if pytorch_requested:
-                df += """
+                if FLAGS.linux_distro == "debian":
+                    # Debian base image ships ROCm 10.0.0: use AMD's matching wheels
+                    df += """
+# Install PyTorch for ROCm (needed by pytorch backend build)
+RUN pip3 install --no-cache-dir wheel && \\
+    pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
+      --extra-index-url https://pypi.org/simple \\
+      "torch[device-all]==2.13.0+rocm10.0.0" \\
+      "torchvision[device-all]==0.28.0+rocm10.0.0"
+"""
+                else:
+                    # Ubuntu base image ships ROCm 7.2.x: keep the previous wheels
+                    df += """
 # Install PyTorch for ROCm (needed by pytorch backend build)
 RUN pip3 install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/rocm7.2
-
+"""
+                df += """
 # Create missing generated header required by PyTorch ROCm wheel
 RUN TORCH_INC=$(python3 -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'include'))") && \\
     mkdir -p "${TORCH_INC}/c10/cuda/impl" && \\
@@ -1594,10 +1607,22 @@ ENV UCX_MEM_EVENTS no
     # Necessary for libtorch.so to find correct HPCX/UCX libraries
     if "pytorch" in backends:
         if enable_rocm:
-            df += """
+            if FLAGS.linux_distro == "debian":
+                # Debian base image ships ROCm 10.0.0: use AMD's matching wheel
+                df += """
+# Install PyTorch ROCm wheel in the production container for runtime libs
+RUN pip3 install --no-cache-dir wheel && \\
+    pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
+      --extra-index-url https://pypi.org/simple \\
+      "torch[device-all]==2.13.0+rocm10.0.0"
+"""
+            else:
+                # Ubuntu base image ships ROCm 7.2.x: keep the previous wheel
+                df += """
 # Install PyTorch ROCm wheel in the production container for runtime libs
 RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/rocm7.2
-
+"""
+            df += """
 # Add PyTorch libs to linker search path:
 #   ldconfig  — indexes versioned .so files (e.g. libtorch_hip.so.1)
 #   LD_LIBRARY_PATH — needed for unversioned .so files (e.g. libgomp.so)
@@ -1605,6 +1630,21 @@ RUN TORCH_LIB=$(python3 -c "import torch, os; print(os.path.join(os.path.dirname
     && echo "$TORCH_LIB" > /etc/ld.so.conf.d/pytorch.conf && ldconfig \
     && ln -sf "$TORCH_LIB" /opt/pytorch_lib
 ENV LD_LIBRARY_PATH /opt/pytorch_lib:${LD_LIBRARY_PATH}
+"""
+            if FLAGS.linux_distro == "debian":
+                # The ROCm 10 wheel does not bundle librocm-openblas.so.0 and its
+                # RUNPATH points to the wheel build machine (/opt/python/...), so
+                # the C++ backend cannot find it. ROCm 10 keeps host math libs
+                # (OpenBLAS, ...) and bundled system libs in versioned core-10.0
+                # folders that are not on the default linker path; register them
+                # with ldconfig.
+                df += """
+# Make ROCm 10 host-math (librocm-openblas.so.0, ...) and rocm_sysdeps libs
+# visible to the loader for libtorch_cpu.so / libtorch_hip.so
+RUN printf '%s\\n' \\
+      /opt/rocm/core-10/lib/host-math/lib \\
+      /opt/rocm/core-10/lib/rocm_sysdeps/lib \\
+      >> /etc/ld.so.conf.d/pytorch.conf && ldconfig
 """
         else:
             df += """
@@ -2341,14 +2381,14 @@ def core_build(
     cmake_script.cmake(
         core_cmake_args(components, backends, cmake_dir, repo_install_dir)
     )
-    if FLAGS.enable_rocm and ("tensorflow" in backends):
-        cmake_script.comment(
-            "Avoid duplicate LLVM CommandLine registration when loading TensorFlow backend"
-        )
-        cmake_script.cmd(
-            "find . -name shared_library.cc -exec "
-            "sed -i 's/RTLD_NOW | RTLD_LOCAL/RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND/' {} +"
-        )
+    # if FLAGS.enable_rocm and ("tensorflow" in backends):
+    #     cmake_script.comment(
+    #         "Avoid duplicate LLVM CommandLine registration when loading TensorFlow backend"
+    #     )
+    #     cmake_script.cmd(
+    #         "find . -name shared_library.cc -exec "
+    #         "sed -i 's/RTLD_NOW | RTLD_LOCAL/RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND/' {} +"
+    #     )
     cmake_script.makeinstall()
 
     if target_platform() == "windows":
@@ -2523,9 +2563,10 @@ def backend_build(
                 "cp -r {} onnxruntime".format(onnxruntime_backend_src)
             )
         else:
+            # original branch: rocm10.1_changes
             cmake_script.gitclone(
                 "onnxruntime_backend",
-                "rocm10.1_changes",
+                "pre_verify_10.1",
                 be,
                 "https://github.com/TedThemistokleous/",
             )
@@ -2642,6 +2683,15 @@ def backend_build(
     else:
         cmake_script.mkdir(repo_build_dir)
         cmake_script.cwd(repo_build_dir)
+        if be == "pytorch" and FLAGS.enable_rocm:
+            cmake_script.comment(
+                "PyTorch's CMake (LoadHIP.cmake) fails with 'No GPU arch "
+                "specified for ROCm build' unless PYTORCH_ROCM_ARCH is set, "
+                "so export it before configuring the pytorch backend."
+            )
+            cmake_script.cmd(
+                "export PYTORCH_ROCM_ARCH={}".format(FLAGS.rocm_arch)
+            )
         cmake_script.cmake(
             backend_cmake_args(images, components, be, repo_install_dir, library_paths)
         )
@@ -3198,6 +3248,17 @@ if __name__ == "__main__":
         "--enable-rocm", action="store_true", required=False, help="Enable AMD GPU support."
     )
     parser.add_argument(
+        "--rocm-arch",
+        type=str,
+        required=False,
+        default="gfx942",
+        help="Comma-separated AMD GPU target architecture(s) (e.g. 'gfx942' or "
+        "'gfx942,gfx90a') to build ROCm backends for. Exported as the "
+        "PYTORCH_ROCM_ARCH environment variable before configuring the "
+        "pytorch backend, since PyTorch's CMake (LoadHIP.cmake) fails with "
+        "'No GPU arch specified for ROCm build' otherwise.",
+    )
+    parser.add_argument(
         "--linux-distro",
         type=str,
         required=False,
@@ -3413,11 +3474,18 @@ if __name__ == "__main__":
         "instead of cloning. When set, this directory is copied into the build "
         "tree in place of the upstream clone. Used by onnxruntime backend (ROCm).",
     )
+    # Temporary: the stock AMD plugin binds MIGraphX "#output_N" to ORT
+    # GetOutput(N) by position. After Kahn-sort + GraphToProto those index
+    # spaces can disagree, so GPU ONNX heads land on the wrong names vs CPU.
+    # ffloresy/fix-output-name-remap maps #output_N onto the fused-node slot
+    # by ONNX name. Switch these two defaults back to
+    # onnxruntime/onnxruntime-ep-amdgpu.git + cleanup_pad_slice_overhead
+    # once that remap is upstream.
     parser.add_argument(
         "--migraphx-ep-repo",
         required=False,
         type=str,
-        default="https://github.com/onnxruntime/onnxruntime-ep-amdgpu.git",
+        default="https://github.com/ffloresy/onnxruntime-ep-amdgpu.git",
         help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git repo URL when "
         "building from source. Produces libmigraphx-ep.so. Used by onnxruntime backend.",
     )
@@ -3425,7 +3493,7 @@ if __name__ == "__main__":
         "--migraphx-ep-branch",
         required=False,
         type=str,
-        default="cleanup_pad_slice_overhead",
+        default="fix-output-name-remap",
         help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git branch when "
         "building from source. Used by onnxruntime backend.",
     )
