@@ -2525,7 +2525,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "onnxruntime_backend",
-                "rocm10.1_changes",
+                "workload_cleanup",
                 be,
                 "https://github.com/TedThemistokleous/",
             )
@@ -3349,7 +3349,7 @@ if __name__ == "__main__":
         "--migraphx-branch",
         required=False,
         type=str,
-        default="remove_output_concats2",
+        default="develop",
         help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
     )
     parser.add_argument(
