@@ -37,7 +37,7 @@ diff --git a/tensorflow/core/common_runtime/BUILD b/tensorflow/core/common_runti
 index 982b65b0..ef076d5f 100644
 --- a/tensorflow/core/common_runtime/BUILD
 +++ b/tensorflow/core/common_runtime/BUILD
-@@ -1305,6 +1305,37 @@ cc_library(
+@@ -1305,6 +1305,36 @@ cc_library(
      ],
  )
  
@@ -52,7 +52,6 @@ index 982b65b0..ef076d5f 100644
 +    ],
 +    visibility = ["//visibility:public"],
 +    deps = [
-+        "@local_config_rocm//rocm:rocm_headers",
 +        "//tensorflow/c:c_api_headers",
 +        "//tensorflow/c:env",
 +        "//tensorflow/cc/saved_model:loader",
@@ -80,7 +79,7 @@ new file mode 100644
 index 00000000..5fffa108
 --- /dev/null
 +++ b/tensorflow/core/common_runtime/tensorflow_backend_tf.cc
-@@ -0,0 +1,1192 @@
+@@ -0,0 +1,1189 @@
 +// Copyright 2019-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 +//
 +// Redistribution and use in source and binary forms, with or without
@@ -128,7 +127,6 @@ index 00000000..5fffa108
 +#include "tensorflow/core/public/session.h"
 +#include "tensorflow/core/public/session_options.h"
 +#include "tensorflow/core/util/device_name_utils.h"
-+#include "rocm/include/hip/hip_runtime_api.h"
 +#include "tensorflow/c/env.h"
 +
 +TRITONTF_Error* TRITONTF_ErrorNew(const std::string& str);
@@ -494,11 +492,9 @@ index 00000000..5fffa108
 +         tensorflow::DataTypeSize(tftensor_.dtype())});
 +    nonstring_base_ = static_cast<char*>(flat.data());
 +    nonstring_byte_size_ = flat.size();
-+
-+    hipPointerAttribute_t attributes;
-+    hipError_t err = hipPointerGetAttributes(&attributes, nonstring_base_);
-+    gpu_tensor_ =
-+        ((err == hipSuccess) && (attributes.type == hipMemoryTypeDevice));
++    gpu_tensor_ = (nonstring_base_ != nullptr) &&
++                  (tftensor_.GetMemoryType() ==
++                   tensorflow::AllocatorMemoryType::kDevice);
 +  }
 +}
 +
