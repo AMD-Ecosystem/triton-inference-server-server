@@ -1,12 +1,12 @@
 #
-# Ubuntu 24.04 + ROCm 10.0.0 + Python 3.12 thin base.
-# Optional: docker build -t localhost/ubuntu24.04_rocm10.0.0 \
-#   -f Dockerfile.ubuntu24.04_rocm10.0.0 .
-# python3 build.py --enable-rocm uses rocm/dev-ubuntu-24.04:10.0.0-full
-# directly; pass --image=base,localhost/ubuntu24.04_rocm10.0.0 to use this.
+# Ubuntu 24.04 + ROCm 10.1.0 + Python 3.12 thin base.
+# Optional: docker build -t localhost/ubuntu24.04_rocm10.1.0 \
+#   -f Dockerfile.ubuntu24.04_rocm10.1.0 .
+# python3 build.py --enable-rocm uses rocm/dev-ubuntu-24.04:10.1.0-full
+# directly; pass --image=base,localhost/ubuntu24.04_rocm10.1.0 to use this.
 #
 
-FROM rocm/dev-ubuntu-24.04:10.0.0-full
+FROM rocm/dev-ubuntu-24.04:10.1.0-full
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -47,7 +47,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Official ROCm 10 images omit this file; some tools expect /^X.Y.Z-.*$/
-RUN mkdir -p /opt/rocm/.info && echo '10.0.0-0' > /opt/rocm/.info/version
+RUN mkdir -p /opt/rocm/.info && echo '10.1.0-0' > /opt/rocm/.info/version
 
 ENV ROCM_PATH=/opt/rocm
 ENV HIP_PATH=/opt/rocm

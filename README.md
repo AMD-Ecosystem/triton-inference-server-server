@@ -50,38 +50,38 @@ The following table lists the ROCm-enabled Triton Inference Server component rep
 
 | Component | Repository | Branch |
 |-----------|------------|--------|
-| Server | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
-| Core | [AMD-Ecosystem/triton-inference-server-core](https://github.com/AMD-Ecosystem/triton-inference-server-core/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
-| Backend | [AMD-Ecosystem/triton-inference-server-backend](https://github.com/AMD-Ecosystem/triton-inference-server-backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
-| Third Party | [AMD-Ecosystem/triton-inference-server-third_party](https://github.com/AMD-Ecosystem/triton-inference-server-third_party/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
-| ONNX Runtime Backend | [AMD-Ecosystem/triton-inference-server-onnxruntime_backend](https://github.com/AMD-Ecosystem/triton-inference-server-onnxruntime_backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
-| Python Backend | [AMD-Ecosystem/triton-inference-server-python_backend](https://github.com/AMD-Ecosystem/triton-inference-server-python_backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
-| vLLM Backend | [AMD-Ecosystem/triton-inference-server-vllm_backend](https://github.com/AMD-Ecosystem/triton-inference-server-vllm_backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
-| Pytorch Backend | [AMD-Ecosystem/triton-inference-server-pytorch_backend](https://github.com/AMD-Ecosystem/triton-inference-server-pytorch_backend/tree/rocm10.0.0_r26.10) | `rocm10.0.0_r26.10` |
+| Server | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server/tree/rocm10.1.0_r26.11) | `rocm10.1.0_r26.11` |
+| Core | [AMD-Ecosystem/triton-inference-server-core](https://github.com/AMD-Ecosystem/triton-inference-server-core/tree/rocm10.1.0_r26.11) | `rocm10.1.0_r26.11` |
+| Backend | [AMD-Ecosystem/triton-inference-server-backend](https://github.com/AMD-Ecosystem/triton-inference-server-backend/tree/rocm10.1.0_r26.11) | `rocm10.1.0_r26.11` |
+| Third Party | [AMD-Ecosystem/triton-inference-server-third_party](https://github.com/AMD-Ecosystem/triton-inference-server-third_party/tree/rocm10.1.0_r26.11) | `rocm10.1.0_r26.11` |
+| ONNX Runtime Backend | [AMD-Ecosystem/triton-inference-server-onnxruntime_backend](https://github.com/AMD-Ecosystem/triton-inference-server-onnxruntime_backend/tree/rocm10.1.0_r26.11) | `rocm10.1.0_r26.11` |
+| Python Backend | [AMD-Ecosystem/triton-inference-server-python_backend](https://github.com/AMD-Ecosystem/triton-inference-server-python_backend/tree/rocm10.1.0_r26.11) | `rocm10.1.0_r26.11` |
+| vLLM Backend | [AMD-Ecosystem/triton-inference-server-vllm_backend](https://github.com/AMD-Ecosystem/triton-inference-server-vllm_backend/tree/rocm10.1.0_r26.11) | `rocm10.1.0_r26.11` |
+| Pytorch Backend | [AMD-Ecosystem/triton-inference-server-pytorch_backend](https://github.com/AMD-Ecosystem/triton-inference-server-pytorch_backend/tree/rocm10.1.0_r26.11) | `rocm10.1.0_r26.11` |
 | Tensorflow Backend | [ROCm/triton-inference-server-tensorflow_backend](https://github.com/ROCm/triton-inference-server-tensorflow_backend/tree/rocm7.2.3_r24.03) | `rocm7.2.3_r24.03` |
 
 
-## ROCm 10.0.0
+## ROCm 10.1.0
 
-These images are for Ubuntu 24.04 and ROCm 10.0.0. Clone this repository only. `build.py` clones core, backend, third_party, and the backend you select from AMD-Ecosystem at `rocm10.0.0_r26.10`. The base image is `rocm/dev-ubuntu-24.04:10.0.0-full`.
+These images are for Ubuntu 24.04 and ROCm 10.1.0. Clone this repository only. `build.py` clones core, backend, third_party, and the backend you select from AMD-Ecosystem at `rocm10.1.0_r26.11`. The base image is `rocm/dev-ubuntu-24.04:10.1.0-full`.
 
 Each backend is a separate image. `build.py` compiles the server and that backend, stages `build/install`, and builds the production image. The Dockerfiles in this section are that production stage. `build.py` also tags the result `tritonserver:latest`, so retag it before building another backend.
 
 | Backend | Dockerfile | Image tag |
 | --- | --- | --- |
-| ONNX Runtime | `Dockerfile.onnxruntime-rocm` | `tritonserver:rocm10.0.0-onnxruntime` |
-| Python | `Dockerfile.python-rocm` | `tritonserver:rocm10.0.0-python` |
-| PyTorch | `Dockerfile.pytorch-rocm` | `tritonserver:rocm10.0.0-pytorch` |
-| vLLM | `Dockerfile.vllm-rocm` | `tritonserver:rocm10.0.0-vllm` |
+| ONNX Runtime | `Dockerfile.onnxruntime-rocm` | `tritonserver:rocm10.1.0-onnxruntime` |
+| Python | `Dockerfile.python-rocm` | `tritonserver:rocm10.1.0-python` |
+| PyTorch | `Dockerfile.pytorch-rocm` | `tritonserver:rocm10.1.0-pytorch` |
+| vLLM | `Dockerfile.vllm-rocm` | `tritonserver:rocm10.1.0-vllm` |
 
 ### Prerequisites
 
 - Docker installed and running, with access to `/var/run/docker.sock` (the ONNX Runtime build starts a nested image)
-- AMD GPU with ROCm 10.0.0 on the host
+- AMD GPU with ROCm 10.1.0 on the host
 - The base image present locally. The commands below pass `--no-container-pull`:
 
 ```bash
-docker pull rocm/dev-ubuntu-24.04:10.0.0-full
+docker pull rocm/dev-ubuntu-24.04:10.1.0-full
 ```
 
 Do not pass `--enable-gpu` together with `--enable-rocm`.
@@ -90,7 +90,7 @@ If Docker rejects `--group-add video` or `--group-add render`, pass the numeric 
 
 The run commands mount a model repository at `/models` and publish HTTP `8000`, gRPC `8001`, and metrics `8002`.
 
-To use a locally tagged base with extra apt packages and HIP on `LD_LIBRARY_PATH`, build it first and pass `--image=base,localhost/ubuntu24.04_rocm10.0.0` to `build.py`:
+To use a locally tagged base with extra apt packages and HIP on `LD_LIBRARY_PATH`, build it first and pass `--image=base,localhost/ubuntu24.04_rocm10.1.0` to `build.py`:
 
 ```bash
 bash scripts/build_ubuntu24.04_rocm_10_base.sh
@@ -101,7 +101,7 @@ bash scripts/build_ubuntu24.04_rocm_10_base.sh
 `build.py` clones `triton-inference-server-onnxruntime_backend` and builds the ONNX Runtime backend with the MIGraphX execution provider.
 
 ```bash
-git clone -b rocm10.0.0_r26.10 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
+git clone -b rocm10.1.0_r26.11 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
 python3 build.py \
   --enable-rocm \
@@ -116,13 +116,13 @@ python3 build.py \
   --endpoint http \
   --endpoint grpc \
   --backend onnxruntime
-docker tag tritonserver:latest tritonserver:rocm10.0.0-onnxruntime
+docker tag tritonserver:latest tritonserver:rocm10.1.0-onnxruntime
 ```
 
 To rebuild only the production stage after `build/install` exists:
 
 ```bash
-docker build -t tritonserver:rocm10.0.0-onnxruntime -f Dockerfile.onnxruntime-rocm .
+docker build -t tritonserver:rocm10.1.0-onnxruntime -f Dockerfile.onnxruntime-rocm .
 ```
 
 Run the ONNX Runtime image:
@@ -140,7 +140,7 @@ docker run --rm \
   -e ORT_MIGRAPHX_CACHE_PATH=/migraphx_cache \
   -v /path/to/model_repository:/models \
   -v /path/to/migraphx_cache:/migraphx_cache \
-  tritonserver:rocm10.0.0-onnxruntime \
+  tritonserver:rocm10.1.0-onnxruntime \
   tritonserver --model-repository=/models
 ```
 
@@ -149,7 +149,7 @@ docker run --rm \
 `build.py` clones `triton-inference-server-python_backend` and compiles it with ROCm enabled. The stub uses Python 3.12. This image serves models whose config says `backend: "python"`.
 
 ```bash
-git clone -b rocm10.0.0_r26.10 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
+git clone -b rocm10.1.0_r26.11 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
 python3 build.py \
   --enable-rocm \
@@ -164,13 +164,13 @@ python3 build.py \
   --endpoint http \
   --endpoint grpc \
   --backend python
-docker tag tritonserver:latest tritonserver:rocm10.0.0-python
+docker tag tritonserver:latest tritonserver:rocm10.1.0-python
 ```
 
 To rebuild only the production stage after `build/install` exists:
 
 ```bash
-docker build -t tritonserver:rocm10.0.0-python -f Dockerfile.python-rocm .
+docker build -t tritonserver:rocm10.1.0-python -f Dockerfile.python-rocm .
 ```
 
 Run the Python image:
@@ -185,16 +185,16 @@ docker run --rm \
   -p 8000:8000 -p 8001:8001 -p 8002:8002 \
   -e LD_LIBRARY_PATH=/opt/rocm/lib \
   -v /path/to/model_repository:/models \
-  tritonserver:rocm10.0.0-python \
+  tritonserver:rocm10.1.0-python \
   tritonserver --model-repository=/models
 ```
 
 ### PyTorch
 
-`build.py` clones `triton-inference-server-pytorch_backend` and hipifies the CUDA sources with `hipify-perl` before compiling `libtriton_pytorch.so`. The build sets `PYTORCH_ROCM_ARCH=gfx942` and installs `torch[device-all]==2.13.0+rocm10.0.0`. Models use `platform: "pytorch_libtorch"`.
+`build.py` clones `triton-inference-server-pytorch_backend` and hipifies the CUDA sources with `hipify-perl` before compiling `libtriton_pytorch.so`. The build sets `PYTORCH_ROCM_ARCH=gfx942` and installs `torch[device-all]==2.13.0+rocm10.1.0`. Models use `platform: "pytorch_libtorch"`.
 
 ```bash
-git clone -b rocm10.0.0_r26.10 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
+git clone -b rocm10.1.0_r26.11 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
 python3 build.py \
   --enable-rocm \
@@ -209,13 +209,13 @@ python3 build.py \
   --endpoint http \
   --endpoint grpc \
   --backend pytorch
-docker tag tritonserver:latest tritonserver:rocm10.0.0-pytorch
+docker tag tritonserver:latest tritonserver:rocm10.1.0-pytorch
 ```
 
 To rebuild only the production stage after `build/install` exists:
 
 ```bash
-docker build -t tritonserver:rocm10.0.0-pytorch -f Dockerfile.pytorch-rocm .
+docker build -t tritonserver:rocm10.1.0-pytorch -f Dockerfile.pytorch-rocm .
 ```
 
 Run the PyTorch image:
@@ -230,16 +230,16 @@ docker run --rm \
   -p 8000:8000 -p 8001:8001 -p 8002:8002 \
   -e LD_LIBRARY_PATH=/opt/rocm/lib \
   -v /path/to/model_repository:/models \
-  tritonserver:rocm10.0.0-pytorch \
+  tritonserver:rocm10.1.0-pytorch \
   tritonserver --model-repository=/models
 ```
 
 ### vLLM
 
-`build.py` also clones the Python backend, which the vLLM backend runs on. The production image installs the ROCm vLLM wheel into Python 3.14 and compiles the gfx942 native extensions against torch 2.13.0+rocm10.0.0. `docker/rocm_vllm_extensions.sh` and `docker/rocm_vllm_runtime.sh` do that work.
+`build.py` also clones the Python backend, which the vLLM backend runs on. The production image installs the ROCm vLLM wheel into Python 3.14 and compiles the gfx942 native extensions against torch 2.13.0+rocm10.1.0. `docker/rocm_vllm_extensions.sh` and `docker/rocm_vllm_runtime.sh` do that work.
 
 ```bash
-git clone -b rocm10.0.0_r26.10 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
+git clone -b rocm10.1.0_r26.11 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
 python3 build.py \
   --enable-rocm \
@@ -254,13 +254,13 @@ python3 build.py \
   --endpoint http \
   --endpoint grpc \
   --backend vllm
-docker tag tritonserver:latest tritonserver:rocm10.0.0-vllm
+docker tag tritonserver:latest tritonserver:rocm10.1.0-vllm
 ```
 
 To rebuild only the production stage after `build/install` exists:
 
 ```bash
-docker build -t tritonserver:rocm10.0.0-vllm -f Dockerfile.vllm-rocm .
+docker build -t tritonserver:rocm10.1.0-vllm -f Dockerfile.vllm-rocm .
 ```
 
 Run the vLLM image:
@@ -276,7 +276,7 @@ docker run --rm \
   -p 8000:8000 -p 8001:8001 -p 8002:8002 \
   -e LD_LIBRARY_PATH=/opt/rocm/lib \
   -v /path/to/model_repository:/models \
-  tritonserver:rocm10.0.0-vllm \
+  tritonserver:rocm10.1.0-vllm \
   tritonserver --model-repository=/models
 ```
 

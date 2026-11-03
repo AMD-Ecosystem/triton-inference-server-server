@@ -20,7 +20,7 @@ rm -rf /var/lib/apt/lists/*
 
 python3.14 -m pip download --no-deps -d /tmp/vllm-wheel --pre \
   --extra-index-url https://rocm.frameworks.amd.com/whl-multi-arch/vllm/ \
-  "vllm==0.27.1.dev5+rocm10.0.0.gf46a9dfe2.d20260826" \
+  "vllm==0.27.1.dev5+rocm10.1.0.gf46a9dfe2.d20260826" \
   "flash-attn==2.8.3" \
   "amd-aiter==0.1.20.post1"
 python3.14 -m pip install --no-cache-dir --no-deps /tmp/vllm-wheel/*.whl
@@ -69,9 +69,9 @@ PY
 
 python3.14 -m pip install --no-cache-dir --force-reinstall --no-deps \
   --index-url https://stable.repo.amd.com/rocm/whl-next/ \
-  "torch==2.13.0+rocm10.0.0" \
-  "torchvision==0.28.0+rocm10.0.0" \
-  "triton==3.8.0+git4cff872c.rocm10.0.0"
+  "torch==2.13.0+rocm10.1.0" \
+  "torchvision==0.28.0+rocm10.1.0" \
+  "triton==3.8.0+git4cff872c.rocm10.1.0"
 
 python3.14 - << 'PY'
 import importlib.metadata
