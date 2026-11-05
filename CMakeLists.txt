@@ -289,6 +289,10 @@ if(EXISTS "/mnt/core")
   list(APPEND _TRITON_SERVER_FC_ARGS
     -DFETCHCONTENT_SOURCE_DIR_REPO-CORE:PATH=/mnt/core)
 endif()
+if(EXISTS "/mnt/backend")
+  list(APPEND _TRITON_SERVER_FC_ARGS
+    -DFETCHCONTENT_SOURCE_DIR_REPO-BACKEND:PATH=/mnt/backend)
+endif()
 
 ExternalProject_Add(triton-server
   PREFIX triton-server

@@ -9,7 +9,7 @@ export VLLM_TARGET_DEVICE=rocm
 export PYTORCH_ROCM_ARCH=gfx942
 export MAX_JOBS=16
 export CMAKE_BUILD_TYPE=Release
-export VLLM_VERSION_OVERRIDE=0.27.1.dev5
+export VLLM_VERSION_OVERRIDE=0.29.1.dev0
 unset VLLM_USE_PRECOMPILED || true
 unset VLLM_PRECOMPILED_WHEEL_LOCATION || true
 unset VLLM_DOCKER_BUILD_CONTEXT || true
@@ -20,7 +20,7 @@ rm -rf /var/lib/apt/lists/*
 
 python3.14 -m pip download --no-deps -d /tmp/vllm-wheel --pre \
   --extra-index-url https://rocm.frameworks.amd.com/whl-multi-arch/vllm/ \
-  "vllm==0.27.1.dev5+rocm10.1.0.gf46a9dfe2.d20260826" \
+  "vllm==0.29.1.dev0+rocm10.1.0.g98dff2a81.d20261002" \
   "flash-attn==2.8.3" \
   "amd-aiter==0.1.20.post1"
 python3.14 -m pip install --no-cache-dir --no-deps /tmp/vllm-wheel/*.whl
@@ -71,7 +71,7 @@ python3.14 -m pip install --no-cache-dir --force-reinstall --no-deps \
   --index-url https://stable.repo.amd.com/rocm/whl-next/ \
   "torch==2.13.0+rocm10.1.0" \
   "torchvision==0.28.0+rocm10.1.0" \
-  "triton==3.8.0+git4cff872c.rocm10.1.0"
+  "triton==3.8.0+git669b31ac.rocm10.1.0"
 
 python3.14 - << 'PY'
 import importlib.metadata

@@ -106,13 +106,46 @@ def rocm_local_src_bind_mounts():
         "~/triton_work/triton-inference-server-onnxruntime_backend"
     )
     core = os.path.expanduser(
-        "~/triton-inference-work/triton-inference-server-core"
+        "~/triton_work/triton-inference-server-core"
     )
-    if os.path.isdir(ort):
-        mounts.append((os.path.abspath(ort), "/mnt/onnxruntime_backend"))
-    if os.path.isdir(core):
-        mounts.append((os.path.abspath(core), "/mnt/core"))
+    third_party = os.path.expanduser(
+        "~/triton_work/triton-inference-server-third_party"
+    )
+    backend = os.path.expanduser(
+        "~/triton_work/triton-inference-server-backend"
+    )
+    python_be = os.path.expanduser(
+        "~/triton_work/triton-inference-server-python_backend"
+    )
+    pytorch_be = os.path.expanduser(
+        "~/triton_work/triton-inference-server-pytorch_backend"
+    )
+    vllm_be = os.path.expanduser(
+        "~/triton_work/triton-inference-server-vllm_backend"
+    )
+    for src, dest in (
+        (ort, "/mnt/onnxruntime_backend"),
+        (core, "/mnt/core"),
+        (third_party, "/mnt/third_party"),
+        (backend, "/mnt/backend"),
+        (python_be, "/mnt/python_backend"),
+        (pytorch_be, "/mnt/pytorch_backend"),
+        (vllm_be, "/mnt/vllm_backend"),
+    ):
+        if os.path.isdir(src):
+            mounts.append((os.path.abspath(src), dest))
     return mounts
+
+
+def rocm_use_local_tree(cmake_script, dest_name, mount_dest):
+    """Copy a bind-mounted backend tree into the container build directory."""
+    cmake_script.comment(f"Using bind-mounted sources from {mount_dest}")
+    cmake_script.cmd(
+        "rm -rf {dest} && mkdir {dest} && "
+        "tar -C {mount} --exclude=.git -cf - . | tar -C {dest} -xf -".format(
+            dest=dest_name, mount=mount_dest
+        )
+    )
 
 
 def log(msg, force=False):
@@ -627,6 +660,26 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
             be, "TRITON_BACKEND_REPO_TAG", "STRING", components["backend"]
         ),
     ]
+
+    # rocm10.1.0_r26.11 is a local branch. AMD-Ecosystem does not have it,
+    # and a shallow FetchContent clone then fails with "invalid reference".
+    if FLAGS.enable_rocm:
+        local_mounts = rocm_local_src_bind_mounts()
+        if any(dest == "/mnt/core" for _, dest in local_mounts):
+            cargs.append(
+                cmake_backend_arg(
+                    be, "FETCHCONTENT_SOURCE_DIR_REPO-CORE", "PATH", "/mnt/core"
+                )
+            )
+        if any(dest == "/mnt/backend" for _, dest in local_mounts):
+            cargs.append(
+                cmake_backend_arg(
+                    be,
+                    "FETCHCONTENT_SOURCE_DIR_REPO-BACKEND",
+                    "PATH",
+                    "/mnt/backend",
+                )
+            )
 
     cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_GPU", FLAGS.enable_gpu))
     cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_ROCM", FLAGS.enable_rocm))
@@ -1623,14 +1676,8 @@ RUN pip3 install --no-cache-dir wheel && \\
 # Add PyTorch libs to linker search path:
 #   ldconfig  — indexes versioned .so files (e.g. libtorch_hip.so.1)
 #   LD_LIBRARY_PATH — needed for unversioned .so files (e.g. libgomp.so)
-RUN TORCH_LIB=$(python3 -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))") \
-    && printf '%s\n' \
-         "$TORCH_LIB" \
-         /opt/rocm/core-10.0/lib/host-math/lib \
-         /opt/rocm/core-10.0/lib/rocm_sysdeps/lib \
-         > /etc/ld.so.conf.d/pytorch.conf && ldconfig \
-    && ln -sf "$TORCH_LIB" /opt/pytorch_lib
-ENV LD_LIBRARY_PATH /opt/pytorch_lib:/opt/rocm/core-10.0/lib/host-math/lib:/opt/rocm/core-10.0/lib/rocm_sysdeps/lib:${LD_LIBRARY_PATH}
+RUN TORCH_LIB=$(python3 -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))") && printf '%s\\n' "$TORCH_LIB" /opt/rocm/core-10.1/lib/host-math/lib /opt/rocm/core-10.1/lib/rocm_sysdeps/lib > /etc/ld.so.conf.d/pytorch.conf && ldconfig && ln -sf "$TORCH_LIB" /opt/pytorch_lib
+ENV LD_LIBRARY_PATH /opt/pytorch_lib:/opt/rocm/core-10.1/lib/host-math/lib:/opt/rocm/core-10.1/lib/rocm_sysdeps/lib:${LD_LIBRARY_PATH}
 """
         else:
             df += """
@@ -2075,6 +2122,19 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "tritonserver_buildbase_cache0",
             "tritonserver_buildbase_cache1",
         ]
+        # Docker BuildKit fails the solve when --cache-from names an image
+        # that is not local. ROCm builds hit that on the first run.
+        if FLAGS.enable_rocm:
+            cachefrommap = [
+                image
+                for image in cachefrommap
+                if subprocess.call(
+                    ["docker", "image", "inspect", image],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                == 0
+            ]
 
         baseargs = [
             "docker",
@@ -2481,21 +2541,25 @@ def backend_build(
                 "https://github.com/AMD-Ecosystem",
             )
     elif be == "python" and FLAGS.enable_rocm:
-        # Use AMD-specific python_backend fork for ROCm support
-        cmake_script.gitclone(
-            "triton-inference-server-python_backend",
-            "rocm10.1.0_r26.11",
-            "python",
-            "https://github.com/AMD-Ecosystem",
-        )
+        if any(dest == "/mnt/python_backend" for _, dest in rocm_local_src_bind_mounts()):
+            rocm_use_local_tree(cmake_script, "python", "/mnt/python_backend")
+        else:
+            cmake_script.gitclone(
+                "triton-inference-server-python_backend",
+                "rocm10.1.0_r26.11",
+                "python",
+                "https://github.com/AMD-Ecosystem",
+            )
     elif be == "pytorch" and FLAGS.enable_rocm:
-        # Use AMD-specific pytorch_backend fork for ROCm support
-        cmake_script.gitclone(
-            "triton-inference-server-pytorch_backend",
-            "rocm10.1.0_r26.11",
-            "pytorch",
-            "https://github.com/AMD-Ecosystem",
-        )
+        if any(dest == "/mnt/pytorch_backend" for _, dest in rocm_local_src_bind_mounts()):
+            rocm_use_local_tree(cmake_script, "pytorch", "/mnt/pytorch_backend")
+        else:
+            cmake_script.gitclone(
+                "triton-inference-server-pytorch_backend",
+                "rocm10.1.0_r26.11",
+                "pytorch",
+                "https://github.com/AMD-Ecosystem",
+            )
     elif be == "tensorflow" and FLAGS.enable_rocm:
         cmake_script.gitclone(
             "triton-inference-server-tensorflow_backend", 
@@ -2597,7 +2661,14 @@ def backend_clone(
     repo = backend_repo(be)
     if be == "vllm" and FLAGS.enable_rocm:
         repo = "triton-inference-server-vllm_backend"
-    clone_script.gitclone(repo, tag, be, github_organization)
+    if (
+        be == "vllm"
+        and FLAGS.enable_rocm
+        and any(dest == "/mnt/vllm_backend" for _, dest in rocm_local_src_bind_mounts())
+    ):
+        rocm_use_local_tree(clone_script, be, "/mnt/vllm_backend")
+    else:
+        clone_script.gitclone(repo, tag, be, github_organization)
 
     repo_target_dir = os.path.join(install_dir, "backends")
     clone_script.mkdir(repo_target_dir)
@@ -3591,9 +3662,14 @@ if __name__ == "__main__":
             "backend": "rocm10.1.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
             "thirdparty": "rocm10.1.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
         }
-        if any(dest == "/mnt/core" for _, dest in rocm_local_src_bind_mounts()):
+        local_mounts = rocm_local_src_bind_mounts()
+        if any(dest == "/mnt/core" for _, dest in local_mounts):
             EXTRA_CORE_CMAKE_FLAGS.setdefault(
                 "FETCHCONTENT_SOURCE_DIR_REPO-CORE", "/mnt/core"
+            )
+        if any(dest == "/mnt/third_party" for _, dest in local_mounts):
+            EXTRA_CORE_CMAKE_FLAGS.setdefault(
+                "FETCHCONTENT_SOURCE_DIR_REPO-THIRD-PARTY", "/mnt/third_party"
             )
         if "onnxruntime" not in EXTRA_BACKEND_CMAKE_FLAGS:
             EXTRA_BACKEND_CMAKE_FLAGS["onnxruntime"] = {}
