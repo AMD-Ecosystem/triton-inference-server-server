@@ -26,15 +26,15 @@
 
 add_library(
   grpc-endpoint-library EXCLUDE_FROM_ALL
-  grpc_server.cc
-  grpc_server.h
-  grpc_handler.h
-  grpc_utils.cc
-  grpc_utils.h
-  infer_handler.cc
-  infer_handler.h
-  stream_infer_handler.h
-  stream_infer_handler.cc
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/grpc_server.cc
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/grpc_server.h
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/grpc_handler.h
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/grpc_utils.cc
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/grpc_utils.h
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/infer_handler.cc
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/infer_handler.h
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/stream_infer_handler.h
+  ${TRITON_SERVER_SOURCE_DIR}/grpc/stream_infer_handler.cc
 )
 
 target_compile_features(grpc-endpoint-library PRIVATE cxx_std_${TRITON_MIN_CXX_STANDARD})
@@ -97,6 +97,26 @@ if(${TRITON_ENABLE_GPU})
       CUDA::cudart
   )
 endif() # TRITON_ENABLE_GPU
+
+if(${TRITON_ENABLE_ROCM})
+  target_compile_definitions(
+    grpc-endpoint-library
+    PRIVATE TRITON_ENABLE_ROCM=1
+    PRIVATE __HIP_PLATFORM_AMD__=1
+  )
+
+  target_include_directories(
+    grpc-endpoint-library
+    PRIVATE
+      ${TRITON_BUILD_ROCM_HOME}/include
+  )
+
+  target_link_libraries(
+    grpc-endpoint-library
+    PUBLIC
+      hip::host
+  )
+endif() # TRITON_ENABLE_ROCM
 
 if(${TRITON_ENABLE_METRICS})
   target_compile_definitions(

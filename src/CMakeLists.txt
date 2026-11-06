@@ -43,16 +43,29 @@ FetchContent_Declare(
   GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/common.git
   GIT_TAG ${TRITON_COMMON_REPO_TAG}
 )
-FetchContent_Declare(
-  repo-core
-  GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/core.git
-  GIT_TAG ${TRITON_CORE_REPO_TAG}
-)
-FetchContent_Declare(
-  repo-backend
-  GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/backend.git
-  GIT_TAG ${TRITON_BACKEND_REPO_TAG}
-)
+if(${TRITON_ENABLE_ROCM})
+  FetchContent_Declare(
+    repo-core
+    GIT_REPOSITORY https://github.com/AMD-Ecosystem/triton-inference-server-core.git
+    GIT_TAG ${TRITON_CORE_REPO_TAG}
+  )
+  FetchContent_Declare(
+    repo-backend
+    GIT_REPOSITORY https://github.com/AMD-Ecosystem/triton-inference-server-backend.git
+    GIT_TAG ${TRITON_BACKEND_REPO_TAG}
+  )
+else()
+  FetchContent_Declare(
+    repo-core
+    GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/core.git
+    GIT_TAG ${TRITON_CORE_REPO_TAG}
+  )
+  FetchContent_Declare(
+    repo-backend
+    GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/backend.git
+    GIT_TAG ${TRITON_BACKEND_REPO_TAG}
+  )
+endif()
 
 if(TRITON_ENABLE_GRPC)
   set(TRITON_COMMON_ENABLE_PROTOBUF ON)
@@ -61,12 +74,27 @@ endif() # TRITON_ENABLE_GRPC
 
 FetchContent_MakeAvailable(repo-common repo-core repo-backend)
 
-# CUDA
+set(TRITON_SERVER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+if(${TRITON_ENABLE_ROCM})
+  if(NOT TRITON_HIPIFIED_SOURCES_DIR)
+    message(FATAL_ERROR
+      "TRITON_HIPIFIED_SOURCES_DIR is required for a ROCm server build")
+  endif()
+  set(TRITON_SERVER_SOURCE_DIR "${TRITON_HIPIFIED_SOURCES_DIR}/src")
+endif() # TRITON_ENABLE_ROCM
+
+# CUDA / ROCm
 #
 if(${TRITON_ENABLE_GPU})
   find_package(CUDAToolkit REQUIRED)
   message(STATUS "Using CUDA ${CUDA_VERSION}")
 endif() # TRITON_ENABLE_GPU
+
+if(${TRITON_ENABLE_ROCM})
+  list(APPEND CMAKE_PREFIX_PATH "/opt/rocm")
+  find_package(hip REQUIRED CONFIG PATHS ${HIP_DIR} ${ROCM_PATH} /opt/rocm)
+  message(STATUS "Using HIP from ${hip_DIR}")
+endif() # TRITON_ENABLE_ROCM
 
 # libevent
 #
@@ -106,16 +134,16 @@ find_package(Protobuf CONFIG REQUIRED)
 #
 add_executable(
   main
-  classification.cc
-  command_line_parser.cc
-  common.cc
-  main.cc
-  shared_memory_manager.cc
-  triton_signal.cc
-  classification.h
-  common.h
-  shared_memory_manager.h
-  triton_signal.h
+  ${TRITON_SERVER_SOURCE_DIR}/classification.cc
+  ${TRITON_SERVER_SOURCE_DIR}/command_line_parser.cc
+  ${TRITON_SERVER_SOURCE_DIR}/common.cc
+  ${TRITON_SERVER_SOURCE_DIR}/main.cc
+  ${TRITON_SERVER_SOURCE_DIR}/shared_memory_manager.cc
+  ${TRITON_SERVER_SOURCE_DIR}/triton_signal.cc
+  ${TRITON_SERVER_SOURCE_DIR}/classification.h
+  ${TRITON_SERVER_SOURCE_DIR}/common.h
+  ${TRITON_SERVER_SOURCE_DIR}/shared_memory_manager.h
+  ${TRITON_SERVER_SOURCE_DIR}/triton_signal.h
 )
 
 set_property(TARGET main PROPERTY OUTPUT_NAME tritonserver)
@@ -188,6 +216,26 @@ if(${TRITON_ENABLE_GPU})
       CUDA::cudart
   )
 endif() # TRITON_ENABLE_GPU
+
+if(${TRITON_ENABLE_ROCM})
+  target_compile_definitions(
+    main
+    PRIVATE TRITON_ENABLE_ROCM=1
+    PRIVATE __HIP_PLATFORM_AMD__=1
+  )
+
+  target_include_directories(
+    main
+    PRIVATE
+      ${TRITON_BUILD_ROCM_HOME}/include
+  )
+
+  target_link_libraries(
+    main
+    PRIVATE
+      hip::host
+  )
+endif() # TRITON_ENABLE_ROCM
 
 if(${TRITON_ENABLE_HTTP} OR ${TRITON_ENABLE_METRICS} OR
     ${TRITON_ENABLE_SAGEMAKER} OR ${TRITON_ENABLE_VERTEX_AI})
@@ -304,35 +352,35 @@ if(${TRITON_ENABLE_HTTP}
 
   list(APPEND
     HTTP_ENDPOINT_SRCS
-    http_server.cc
-    orca_http.cc
+    ${TRITON_SERVER_SOURCE_DIR}/http_server.cc
+    ${TRITON_SERVER_SOURCE_DIR}/orca_http.cc
   )
   list(APPEND
     HTTP_ENDPOINT_HDRS
-    http_server.h
-    orca_http.h
+    ${TRITON_SERVER_SOURCE_DIR}/http_server.h
+    ${TRITON_SERVER_SOURCE_DIR}/orca_http.h
   )
 
   # Add header / src files based on HTTP related endpoint requested
   if(${TRITON_ENABLE_SAGEMAKER})
     list(APPEND
       HTTP_ENDPOINT_SRCS
-      sagemaker_server.cc
+      ${TRITON_SERVER_SOURCE_DIR}/sagemaker_server.cc
     )
     list(APPEND
       HTTP_ENDPOINT_HDRS
-      sagemaker_server.h
+      ${TRITON_SERVER_SOURCE_DIR}/sagemaker_server.h
     )
   endif() # TRITON_ENABLE_SAGEMAKER
 
   if(${TRITON_ENABLE_VERTEX_AI})
     list(APPEND
       HTTP_ENDPOINT_SRCS
-      vertex_ai_server.cc
+      ${TRITON_SERVER_SOURCE_DIR}/vertex_ai_server.cc
     )
     list(APPEND
       HTTP_ENDPOINT_HDRS
-      vertex_ai_server.h
+      ${TRITON_SERVER_SOURCE_DIR}/vertex_ai_server.h
     )
   endif() # TRITON_ENABLE_VERTEX_AI
 
@@ -391,6 +439,26 @@ if(${TRITON_ENABLE_HTTP}
         CUDA::cudart
     )
   endif() # TRITON_ENABLE_GPU
+
+  if(${TRITON_ENABLE_ROCM})
+    target_compile_definitions(
+      http-endpoint-library
+      PRIVATE TRITON_ENABLE_ROCM=1
+      PRIVATE __HIP_PLATFORM_AMD__=1
+    )
+
+    target_include_directories(
+      http-endpoint-library
+      PRIVATE
+        ${TRITON_BUILD_ROCM_HOME}/include
+    )
+
+    target_link_libraries(
+      http-endpoint-library
+      PUBLIC
+        hip::host
+    )
+  endif() # TRITON_ENABLE_ROCM
 
   if(${TRITON_ENABLE_HTTP})
     target_compile_definitions(
@@ -470,7 +538,8 @@ if(${TRITON_ENABLE_TRACING})
 
   add_library(
     tracing-library EXCLUDE_FROM_ALL
-    tracer.cc tracer.h
+    ${TRITON_SERVER_SOURCE_DIR}/tracer.cc
+    ${TRITON_SERVER_SOURCE_DIR}/tracer.h
   )
 
   target_compile_features(tracing-library PRIVATE cxx_std_${TRITON_MIN_CXX_STANDARD})
@@ -518,6 +587,26 @@ if(${TRITON_ENABLE_TRACING})
     )
   endif() # TRITON_ENABLE_GPU
 
+  if(${TRITON_ENABLE_ROCM})
+    target_compile_definitions(
+      tracing-library
+      PRIVATE TRITON_ENABLE_ROCM=1
+      PRIVATE __HIP_PLATFORM_AMD__=1
+    )
+
+    target_include_directories(
+      tracing-library
+      PRIVATE
+        ${TRITON_BUILD_ROCM_HOME}/include
+    )
+
+    target_link_libraries(
+      tracing-library
+      PUBLIC
+        hip::host
+    )
+  endif() # TRITON_ENABLE_ROCM
+
   if(${TRITON_ENABLE_METRICS})
     target_compile_definitions(
       tracing-library
@@ -556,6 +645,9 @@ endif() # TRITON_ENABLE_TRACING
 #
 # simple
 #
+# These examples include CUDA headers unconditionally. Skip them for ROCm;
+# hipify copies are generated but not wired into this ExternalProject yet.
+if(NOT ${TRITON_ENABLE_ROCM})
 add_executable(
   simple
   simple.cc
@@ -600,6 +692,26 @@ if(${TRITON_ENABLE_GPU})
       CUDA::cudart
   )
 endif() # TRITON_ENABLE_GPU
+
+if(${TRITON_ENABLE_ROCM})
+  target_compile_definitions(
+    simple
+    PRIVATE TRITON_ENABLE_ROCM=1
+    PRIVATE __HIP_PLATFORM_AMD__=1
+  )
+
+  target_include_directories(
+    simple
+    PRIVATE
+      ${TRITON_BUILD_ROCM_HOME}/include
+  )
+
+  target_link_libraries(
+    simple
+    PRIVATE
+      hip::host
+  )
+endif() # TRITON_ENABLE_ROCM
 
 install(
   TARGETS simple
@@ -654,18 +766,44 @@ if(${TRITON_ENABLE_GPU})
   )
 endif() # TRITON_ENABLE_GPU
 
+if(${TRITON_ENABLE_ROCM})
+  target_compile_definitions(
+    multi_server
+    PRIVATE TRITON_ENABLE_ROCM=1
+    PRIVATE __HIP_PLATFORM_AMD__=1
+  )
+
+  target_include_directories(
+    multi_server
+    PRIVATE
+      ${TRITON_BUILD_ROCM_HOME}/include
+  )
+
+  target_link_libraries(
+    multi_server
+    PRIVATE
+      hip::host
+  )
+endif() # TRITON_ENABLE_ROCM
+
 install(
   TARGETS multi_server
   RUNTIME DESTINATION bin
 )
+endif() # NOT TRITON_ENABLE_ROCM
 
-if(${TRITON_ENABLE_GPU})
+if(${TRITON_ENABLE_GPU} OR ${TRITON_ENABLE_ROCM})
   #
-  # memory_alloc example
+  # memory_alloc example (use hipified source for ROCm when available)
   #
+  if(${TRITON_ENABLE_ROCM} AND TRITON_HIPIFIED_SOURCES_DIR)
+    set(_memory_alloc_src "${TRITON_HIPIFIED_SOURCES_DIR}/src/memory_alloc.cc")
+  else()
+    set(_memory_alloc_src memory_alloc.cc)
+  endif()
   add_executable(
     memory_alloc
-    memory_alloc.cc
+    ${_memory_alloc_src}
   )
 
   target_compile_features(memory_alloc PRIVATE cxx_std_${TRITON_MIN_CXX_STANDARD})
@@ -698,17 +836,47 @@ if(${TRITON_ENABLE_GPU})
       triton-common-error             # from repo-common
       triton-core-serverapi           # from repo-core
       triton-core-serverstub          # from repo-core
-      CUDA::cudart
+  )
+
+  if(${TRITON_ENABLE_GPU})
+    target_link_libraries(
+      memory_alloc
+      PRIVATE
+        CUDA::cudart
     )
+  endif() # TRITON_ENABLE_GPU
+
+  if(${TRITON_ENABLE_ROCM})
+    target_compile_definitions(
+      memory_alloc
+      PRIVATE TRITON_ENABLE_ROCM=1
+      PRIVATE __HIP_PLATFORM_AMD__=1
+    )
+
+    target_include_directories(
+      memory_alloc
+      PRIVATE
+        ${TRITON_BUILD_ROCM_HOME}/include
+    )
+
+    target_link_libraries(
+      memory_alloc
+      PRIVATE
+        hip::host
+    )
+  endif() # TRITON_ENABLE_ROCM
 
   install(
     TARGETS memory_alloc
     RUNTIME DESTINATION bin
   )
-endif() # TRITON_ENABLE_GPU
+endif() # TRITON_ENABLE_GPU || TRITON_ENABLE_ROCM
 
 # tritonfrontend python package
 add_subdirectory(python)
 
-add_subdirectory(test test)
+# In-tree test backends; their sources are not hipified yet.
+if(NOT ${TRITON_ENABLE_ROCM})
+  add_subdirectory(test test)
+endif() # NOT TRITON_ENABLE_ROCM
 

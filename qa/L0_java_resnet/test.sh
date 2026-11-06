@@ -41,7 +41,7 @@ fi
 # Models
 DATADIR=/data/inferenceserver/${REPO_VERSION}
 MODEL_REPO=`pwd`/models
-TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="https://github.com/triton-inference-server"}
+source ../common/util.sh
 JAVACPP_BRANCH=${JAVACPP_BRANCH:="https://github.com/bytedeco/javacpp-presets.git"}
 JAVACPP_BRANCH_TAG=${JAVACPP_BRANCH_TAG:="master"}
 
@@ -56,14 +56,13 @@ done
 # Set up test files based on installation instructions
 # https://github.com/bytedeco/javacpp-presets/blob/master/tritonserver/README.md
 set -e
-git clone --single-branch --depth=1 -b ${TRITON_CLIENT_REPO_TAG} ${TRITON_REPO_ORGANIZATION}/client.git
+git clone --single-branch --depth=1 -b ${TRITON_CLIENT_REPO_TAG} $(triton_repo_url client).git
 source client/src/java-api-bindings/scripts/install_dependencies_and_build.sh -b $PWD --javacpp-branch ${JAVACPP_BRANCH} --javacpp-tag ${JAVACPP_BRANCH_TAG} --keep-build-dependencies
 cd ..
 
 CLIENT_LOG="client.log"
 SAMPLES_REPO=`pwd`/javacpp-presets/tritonserver/samples/simple
 BASE_COMMAND="mvn clean compile -f $SAMPLES_REPO exec:java -Djavacpp.platform=linux-x86_64"
-source ../common/util.sh
 
 cp ResnetTest.java $SAMPLES_REPO
 sed -i 's/Simple/ResnetTest/g' $SAMPLES_REPO/pom.xml

@@ -46,6 +46,7 @@ _tritonserver_ipaddr = os.environ.get("TRITONSERVER_IPADDR", "localhost")
 
 _test_jetson = bool(int(os.environ.get("TEST_JETSON", 0)))
 _test_windows = bool(int(os.environ.get("TEST_WINDOWS", 0)))
+_test_rocm = os.environ.get("TRITON_ENABLE_ROCM", "0") in ("1", "ON")
 
 
 class PythonTest(unittest.TestCase):
@@ -131,7 +132,9 @@ class PythonTest(unittest.TestCase):
         # NOTE: Windows tests are not running in a docker container. Consequently, we
         # do not specify a --shm-size to use a basis to grow. Therefore, this test does
         # not apply for Windows.
-        if not _test_windows:
+        # NOTE: ROCm containers typically run with --ipc=host, removing the 1GB shm
+        # limit that this test relies on to trigger growth errors.
+        if not _test_windows and not _test_rocm:
             # 2 MiBs
             total_byte_size = 2 * 1024 * 1024
             shape = [total_byte_size]
@@ -167,8 +170,8 @@ class PythonTest(unittest.TestCase):
                 self._infer_help(model_name, shape, dtype)
 
     # GPU tensors are not supported on jetson
-    # CUDA Shared memory is not supported on jetson
-    if not _test_jetson and not _test_windows:
+    # CUDA Shared memory is not supported on jetson or ROCm
+    if not _test_jetson and not _test_windows and not _test_rocm:
 
         def test_gpu_tensor_error(self):
             import tritonclient.utils.cuda_shared_memory as cuda_shared_memory
