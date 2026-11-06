@@ -1,12 +1,13 @@
 #!/bin/bash
 # Install the ROCm vLLM wheel, keep the ROCm torch, drop CUDA wheels, and
-# compile the native extensions against that torch for gfx942.
+# compile the native extensions against that torch for gfx942 (MI300/MI325)
+# and gfx950 (MI350/MI355).
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export PATH="/opt/rocm/bin:${PATH}"
 export ROCM_PATH=/opt/rocm
 export VLLM_TARGET_DEVICE=rocm
-export PYTORCH_ROCM_ARCH=gfx942
+export PYTORCH_ROCM_ARCH="gfx942;gfx950"
 export MAX_JOBS=16
 export CMAKE_BUILD_TYPE=Release
 export VLLM_VERSION_OVERRIDE=0.29.1.dev0
