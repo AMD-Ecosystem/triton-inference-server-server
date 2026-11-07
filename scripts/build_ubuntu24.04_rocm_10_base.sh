@@ -1,15 +1,15 @@
 #!/bin/bash
 #
-# Optional Ubuntu 24.04 + ROCm 10.1.0 thin base (deps + HIP linker path).
-# python3 build.py --enable-rocm already uses rocm/dev-ubuntu-24.04:10.1.0-full.
+# Optional Ubuntu 24.04 + ROCm 10.2.0 thin base (deps + HIP linker path).
+# python3 build.py --enable-rocm already uses rocm/rocm-staging:ubuntu-24.04_10.2.0rc1-full.
 
 set -e
 
 echo "=========================================="
-echo "Building localhost/ubuntu24.04_rocm10.1.0"
+echo "Building localhost/ubuntu24.04_rocm10.2.0rc1"
 echo "=========================================="
-docker build --progress=plain -t localhost/ubuntu24.04_rocm10.1.0 \
-  -f Dockerfile.ubuntu24.04_rocm10.1.0 .
+docker build --progress=plain -t localhost/ubuntu24.04_rocm10.2.0rc1 \
+  -f Dockerfile.ubuntu24.04_rocm10.2.0 .
 echo ""
 
-docker images | grep -E "localhost/ubuntu24.04_rocm10.1.0|rocm/dev-ubuntu-24.04:10.1.0-full" || true
+docker images | grep -E "localhost/ubuntu24.04_rocm10.2.0rc1|rocm/rocm-staging:ubuntu-24.04_10.2.0rc1-full" || true

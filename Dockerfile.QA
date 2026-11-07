@@ -36,6 +36,12 @@ ARG TRITONTMP_DIR=/tmp
 ARG IGPU_BUILD=0
 ARG TRITON_ENABLE_ROCM=1
 
+# Empty unless overridden with --build-context triton_core_src=<dir> and
+# --build-context triton_backend_src=<dir>, for ROCm branches that are not
+# published to AMD-Ecosystem yet.
+FROM scratch AS triton_core_src
+FROM scratch AS triton_backend_src
+
 ############################################################################
 ## Test artifacts built as part of the tritonserver build are
 ## available in CIBASE_IMAGE. Copy these artifacts into the QA area.
@@ -214,7 +220,16 @@ RUN --mount=type=secret,id=gitconfig,target=/run/secrets/gitconfig,required=fals
 ARG TRITON_BOOST_URL="https://archives.boost.io/release/1.80.0/source/boost_1_80_0.tar.gz"
 WORKDIR /workspace/tritonbuild/python
 RUN --mount=type=secret,id=gitconfig,target=/run/secrets/gitconfig,required=false \
+    --mount=type=bind,from=triton_core_src,target=/mnt/core \
+    --mount=type=bind,from=triton_backend_src,target=/mnt/backend \
     export GIT_CONFIG_GLOBAL=/run/secrets/gitconfig && \
+    LOCAL_SRC_ARGS="" && \
+    if [ -f /mnt/core/CMakeLists.txt ]; then \
+        LOCAL_SRC_ARGS="$LOCAL_SRC_ARGS -DFETCHCONTENT_SOURCE_DIR_REPO-CORE=/mnt/core"; \
+    fi && \
+    if [ -f /mnt/backend/CMakeLists.txt ]; then \
+        LOCAL_SRC_ARGS="$LOCAL_SRC_ARGS -DFETCHCONTENT_SOURCE_DIR_REPO-BACKEND=/mnt/backend"; \
+    fi && \
     ROCM_ENABLED=$(echo "$TRITON_ENABLE_ROCM" | tr '[:upper:]' '[:lower:]') && \
     if [ "$ROCM_ENABLED" = "1" ] || [ "$ROCM_ENABLED" = "on" ] || [ "$ROCM_ENABLED" = "true" ]; then \
         ROCM_ENABLED=true; \
@@ -225,7 +240,7 @@ RUN --mount=type=secret,id=gitconfig,target=/run/secrets/gitconfig,required=fals
     if $ROCM_ENABLED; then \
         cmake -DCMAKE_INSTALL_PREFIX:PATH=/workspace/tritonbuild/python/install \
             -DTRITON_ENABLE_ROCM=ON \
-            -DTRITON_BOOST_URL:STRING=${TRITON_BOOST_URL} ..; \
+            -DTRITON_BOOST_URL:STRING=${TRITON_BOOST_URL} $LOCAL_SRC_ARGS ..; \
     else \
         cmake -DCMAKE_INSTALL_PREFIX:PATH=/workspace/tritonbuild/python/install \
             -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION} \
@@ -396,7 +411,18 @@ RUN --mount=type=secret,id=apt_sources,target=/etc/apt/sources.list.d/nvidia-art
 RUN rm -f /usr/bin/python && \
     ln -s /usr/bin/python3 /usr/bin/python
 
-RUN pip3 install --upgrade "numpy<2" pillow attrdict future "grpcio==1.81.1" requests gsutil \
+# QA_PIN_INSTALLED=1 keeps pip (here and in the tests) from replacing the
+# torch/vLLM wheels already in BASE_IMAGE, e.g. with CUDA torch from PyPI.
+ARG QA_PIN_INSTALLED=0
+ARG QA_NUMPY_SPEC="numpy<2"
+RUN touch /etc/pip-qa-constraints.txt && \
+    if [ "$QA_PIN_INSTALLED" = "1" ]; then \
+        pip3 freeze | grep -iE '^(torch|torchvision|triton|vllm|numpy)==' \
+            > /etc/pip-qa-constraints.txt; \
+    fi
+ENV PIP_CONSTRAINT=/etc/pip-qa-constraints.txt
+
+RUN pip3 install --upgrade "${QA_NUMPY_SPEC}" pillow attrdict future "grpcio==1.81.1" requests gsutil \
                            "awscli<=1.36.40" six "grpcio-channelz==1.81.1" prettytable virtualenv \
                            check-jsonschema
 

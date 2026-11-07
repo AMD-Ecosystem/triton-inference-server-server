@@ -95,6 +95,27 @@ OVERRIDE_BACKEND_CMAKE_FLAGS = {}
 THIS_SCRIPT_DIR = os.path.dirname(os.path.abspath(getsourcefile(lambda: 0)))
 
 
+def rocm_compile_tree():
+    """Host directory mounted at /tmp/tritonbuild for a ROCm container build.
+
+    One backend is built at a time, and each gets its own tree under
+    ~/triton_work/build-<backend>. Those paths are symlinks onto /data
+    because the root disk cannot hold another third-party build.
+    """
+    names = [be.split(":")[0] for be in (FLAGS.backend or [])]
+    if len(names) == 1:
+        label = names[0]
+    elif not names:
+        label = "server"
+    else:
+        label = "combined-" + "-".join(names)
+    host = os.path.expanduser(
+        os.path.join("~", "triton_work", "build-" + label, "tritonbuild")
+    )
+    os.makedirs(host, exist_ok=True)
+    return os.path.abspath(host)
+
+
 def rocm_local_src_bind_mounts():
     """Bind local AMD backend/core trees into the builder when present.
 
@@ -123,6 +144,9 @@ def rocm_local_src_bind_mounts():
     vllm_be = os.path.expanduser(
         "~/triton_work/triton-inference-server-vllm_backend"
     )
+    identity_be = os.path.expanduser(
+        "~/triton_work/triton-inference-server-identity_backend"
+    )
     for src, dest in (
         (ort, "/mnt/onnxruntime_backend"),
         (core, "/mnt/core"),
@@ -131,6 +155,7 @@ def rocm_local_src_bind_mounts():
         (python_be, "/mnt/python_backend"),
         (pytorch_be, "/mnt/pytorch_backend"),
         (vllm_be, "/mnt/vllm_backend"),
+        (identity_be, "/mnt/identity_backend"),
     ):
         if os.path.isdir(src):
             mounts.append((os.path.abspath(src), dest))
@@ -661,7 +686,7 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
         ),
     ]
 
-    # rocm10.1.0_r26.11 is a local branch. AMD-Ecosystem does not have it,
+    # rocm10.2.0_r26.11 is a local branch. AMD-Ecosystem does not have it,
     # and a shallow FetchContent clone then fails with "invalid reference".
     if FLAGS.enable_rocm:
         local_mounts = rocm_local_src_bind_mounts()
@@ -1422,8 +1447,8 @@ RUN groupadd -f video && groupadd -f render
 ENV ROCM_PATH=/opt/rocm
 ENV HIP_PATH=/opt/rocm
 ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
-# Official ROCm 10 images omit this file; ORT/Triton CMake expect /^X.Y.Z-.*$/
-RUN mkdir -p /opt/rocm/.info && echo '10.1.0-0' > /opt/rocm/.info/version
+# ROCm 10.2.0 RC1 omits this file; ORT/Triton CMake expect /^X.Y.Z-.*$/
+RUN mkdir -p /opt/rocm/.info && echo '10.2.0-0' > /opt/rocm/.info/version
 """
         # Install PyTorch ROCm wheel for the pytorch backend build
         pytorch_requested = any(b.split(":")[0] == "pytorch" for b in FLAGS.backend)
@@ -1431,10 +1456,10 @@ RUN mkdir -p /opt/rocm/.info && echo '10.1.0-0' > /opt/rocm/.info/version
             df += """
 # Install PyTorch for ROCm (needed by pytorch backend build)
 RUN pip3 install --no-cache-dir wheel && \\
-    pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
+    pip3 install --no-cache-dir --index-url https://rc.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[device-all]==2.13.0+rocm10.1.0" \\
-      "torchvision[device-all]==0.28.0+rocm10.1.0"
+      "torch[device-all]==2.14.0+rocm10.2.0rc1" \\
+      "torchvision[device-all]==0.29.0+rocm10.2.0rc1"
 
 # Create missing generated header required by PyTorch ROCm wheel
 RUN TORCH_INC=$(python3 -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'include'))") && \\
@@ -1450,7 +1475,7 @@ ENV PYTORCH_ROCM_ARCH=gfx942
             # The python backend stub is linked in this image. vLLM's ROCm 10
             # wheel is cp314, so the stub must link libpython3.14.
             df += install_rocm_python314()
-        # ROCm 10: hip_runtime.h lives under /opt/rocm/include (core-10.0).
+        # ROCm 10.2: hip_runtime.h lives under /opt/rocm/include (core-10.2).
         # Hipified sources are compiled with g++, which does not get hipcc -I.
         df += """
 ENV CPATH=/opt/rocm/include
@@ -1669,15 +1694,15 @@ ENV UCX_MEM_EVENTS no
             df += """
 # Install PyTorch ROCm wheel in the production container for runtime libs
 RUN pip3 install --no-cache-dir wheel && \\
-    pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
+    pip3 install --no-cache-dir --index-url https://rc.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[device-all]==2.13.0+rocm10.1.0"
+      "torch[device-all]==2.14.0+rocm10.2.0rc1"
 
 # Add PyTorch libs to linker search path:
 #   ldconfig  — indexes versioned .so files (e.g. libtorch_hip.so.1)
 #   LD_LIBRARY_PATH — needed for unversioned .so files (e.g. libgomp.so)
-RUN TORCH_LIB=$(python3 -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))") && printf '%s\\n' "$TORCH_LIB" /opt/rocm/core-10.1/lib/host-math/lib /opt/rocm/core-10.1/lib/rocm_sysdeps/lib > /etc/ld.so.conf.d/pytorch.conf && ldconfig && ln -sf "$TORCH_LIB" /opt/pytorch_lib
-ENV LD_LIBRARY_PATH /opt/pytorch_lib:/opt/rocm/core-10.1/lib/host-math/lib:/opt/rocm/core-10.1/lib/rocm_sysdeps/lib:${LD_LIBRARY_PATH}
+RUN TORCH_LIB=$(python3 -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))") && printf '%s\\n' "$TORCH_LIB" /opt/rocm/core-10.2/lib/host-math/lib /opt/rocm/core-10.2/lib/rocm_sysdeps/lib > /etc/ld.so.conf.d/pytorch.conf && ldconfig && ln -sf "$TORCH_LIB" /opt/pytorch_lib
+ENV LD_LIBRARY_PATH /opt/pytorch_lib:/opt/rocm/core-10.2/lib/host-math/lib:/opt/rocm/core-10.2/lib/rocm_sysdeps/lib:${LD_LIBRARY_PATH}
 """
         else:
             df += """
@@ -1809,7 +1834,7 @@ ENV HIP_PATH=/opt/rocm
 ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
 ENV LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH}
 RUN echo /opt/rocm/lib > /etc/ld.so.conf.d/rocm.conf && ldconfig
-RUN mkdir -p /opt/rocm/.info && echo '10.1.0-0' > /opt/rocm/.info/version
+RUN mkdir -p /opt/rocm/.info && echo '10.2.0-0' > /opt/rocm/.info/version
 """
     else:
         df += add_cpu_libs_to_linux_dockerfile(backends, target_machine)
@@ -1856,6 +1881,11 @@ RUN apt-get update \\
         else:
             # vLLM engine is installed through a wheel for Ubuntu.
             df += install_vllm()
+            # vLLM runs on Python 3.14. Put its torch lib ahead of /opt/pytorch_lib, which
+            # points at the Python 3.12 torch and would load the wrong libtorch_python.so.
+            df += """
+ENV LD_LIBRARY_PATH /usr/local/lib/python3.14/dist-packages/torch/lib:${LD_LIBRARY_PATH}
+"""
     if "tensorrtllm" in backends or ("vllm" in backends and not enable_rocm):
         df += """
 ENV TRITON_CUDACRT_PATH=/usr/local/cuda/include \\
@@ -2014,14 +2044,14 @@ RUN tar -xvf /opt/_internal/static-libs-for-embedding-only.tar.xz \\
 
 def get_base_image_rocm_debian():
     """Return base image for ROCm Debian"""
-    # No Debian 12 ROCm 10.1.0 image is published yet; use the same
-    # Ubuntu 22.04 ROCm 10.1.0 runtime the Ubuntu path uses.
-    return "rocm/dev-ubuntu-22.04:10.1.0-full"
+    # No Debian 12 ROCm 10.2.0 image is published yet. Debian builds use
+    # the Ubuntu 22.04 10.2.0 RC1 image; pull it before a local Debian build.
+    return "rocm/rocm-staging:ubuntu-22.04_10.2.0rc1-full"
 
 
 def get_base_image_rocm_ubuntu():
     """Return base image for ROCm Ubuntu"""
-    return "rocm/dev-ubuntu-24.04:10.1.0-full"
+    return "rocm/rocm-staging:ubuntu-24.04_10.2.0rc1-full"
 
 
 def create_build_dockerfiles(
@@ -2186,8 +2216,10 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "GIT_TERMINAL_PROMPT=0",  # avoid credential prompt for public FetchContent clones
         ]
 
-        # Optional: mount persistent build dir so third-party libs are reused
-        if getattr(FLAGS, "reuse_third_party_build", False) and target_platform() != "windows":
+        # ROCm builds keep each backend's compile tree off the root disk.
+        if FLAGS.enable_rocm and target_platform() != "windows":
+            runargs += ["-v", "{}:/tmp/tritonbuild".format(rocm_compile_tree())]
+        elif getattr(FLAGS, "reuse_third_party_build", False) and target_platform() != "windows":
             tritonbuild_cache = os.path.abspath(
                 os.path.join(FLAGS.build_dir, "tritonbuild_cache")
             )
@@ -2481,9 +2513,9 @@ def install_vllm():
 # Install vLLM pre-built wheel for ROCm into Python 3.14, plus matching torch.
 RUN apt-get update && apt-get install -y --no-install-recommends libopenmpi-dev && rm -rf /var/lib/apt/lists/*
 RUN python3.14 -m pip install --no-cache-dir \\
-      --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
+      --index-url https://rc.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[device-gfx942]==2.13.0+rocm10.1.0"
+      "torch[device-gfx942,device-gfx950]==2.14.0+rocm10.2.0rc1"
 # Install the ROCm wheel, skip amd-quark, remove CUDA packages, and compile
 # the native extensions against this torch.
 COPY docker/rocm_vllm_extensions.sh /tmp/rocm_vllm_extensions.sh
@@ -2537,7 +2569,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-onnxruntime_backend",
-                "rocm10.1.0_r26.11",
+                "rocm10.2.0_r26.11",
                 be,
                 "https://github.com/AMD-Ecosystem",
             )
@@ -2547,7 +2579,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-python_backend",
-                "rocm10.1.0_r26.11",
+                "rocm10.2.0_r26.11",
                 "python",
                 "https://github.com/AMD-Ecosystem",
             )
@@ -2557,10 +2589,14 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-pytorch_backend",
-                "rocm10.1.0_r26.11",
+                "rocm10.2.0_r26.11",
                 "pytorch",
                 "https://github.com/AMD-Ecosystem",
             )
+    elif be == "identity" and FLAGS.enable_rocm and any(
+        dest == "/mnt/identity_backend" for _, dest in rocm_local_src_bind_mounts()
+    ):
+        rocm_use_local_tree(cmake_script, "identity", "/mnt/identity_backend")
     elif be == "tensorflow" and FLAGS.enable_rocm:
         cmake_script.gitclone(
             "triton-inference-server-tensorflow_backend", 
@@ -3659,9 +3695,9 @@ if __name__ == "__main__":
     if FLAGS.enable_rocm:
         components = {
             "common": default_repo_tag,
-            "core": "rocm10.1.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-core
-            "backend": "rocm10.1.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
-            "thirdparty": "rocm10.1.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
+            "core": "rocm10.2.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-core
+            "backend": "rocm10.2.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
+            "thirdparty": "rocm10.2.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
         }
         local_mounts = rocm_local_src_bind_mounts()
         if any(dest == "/mnt/core" for _, dest in local_mounts):
@@ -3816,7 +3852,7 @@ if __name__ == "__main__":
             if be == "vllm":
                 if FLAGS.enable_rocm:
                     github_organization = "https://github.com/AMD-Ecosystem"
-                    backends[be] = "rocm10.1.0_r26.11"
+                    backends[be] = "rocm10.2.0_r26.11"
                 backend_clone(
                     be,
                     cmake_script,

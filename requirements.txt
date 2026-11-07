@@ -1,0 +1,3 @@
+# Host packages required to run build.py.
+distro
+requests

@@ -1,78 +1,64 @@
 #!/bin/bash
-# Install the ROCm vLLM wheel, keep the ROCm torch, drop CUDA wheels, and
-# compile the native extensions against that torch for gfx942 (MI300/MI325)
-# and gfx950 (MI350/MI355).
+# Install the ROCm 10.2 vLLM 0.32 stack from AMD prerelease wheels (Python 3.14),
+# following the vLLM 0.32 ROCm 10.2 page: flash-attn, amd-aiter, triton, then the
+# vLLM wheel. Then restore the ROCm torch 2.14 / torchvision 0.29.0 wheels, since
+# the vLLM install can pull upstream torch over them.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export PATH="/opt/rocm/bin:${PATH}"
 export ROCM_PATH=/opt/rocm
-export VLLM_TARGET_DEVICE=rocm
-export PYTORCH_ROCM_ARCH="gfx942;gfx950"
-export MAX_JOBS=16
-export CMAKE_BUILD_TYPE=Release
-export VLLM_VERSION_OVERRIDE=0.29.1.dev0
 unset VLLM_USE_PRECOMPILED || true
 unset VLLM_PRECOMPILED_WHEEL_LOCATION || true
 unset VLLM_DOCKER_BUILD_CONTEXT || true
 
+PREREL=https://rocm.frameworks-prereleases.amd.com/whl-multi-arch-staging/vllm
+RC_INDEX=https://rc.repo.amd.com/rocm/whl-next/
+
 apt-get update
-apt-get install -y --no-install-recommends cmake ninja-build git g++ ca-certificates
+apt-get install -y --no-install-recommends ca-certificates
 rm -rf /var/lib/apt/lists/*
 
-python3.14 -m pip download --no-deps -d /tmp/vllm-wheel --pre \
-  --extra-index-url https://rocm.frameworks.amd.com/whl-multi-arch/vllm/ \
-  "vllm==0.29.1.dev0+rocm10.1.0.g98dff2a81.d20261002" \
-  "flash-attn==2.8.3" \
-  "amd-aiter==0.1.20.post1"
-python3.14 -m pip install --no-cache-dir --no-deps /tmp/vllm-wheel/*.whl
+# --no-deps: these wheels depend on torch, and a normal install pulls the PyPI CUDA
+# torch over the ROCm wheel. Their other dependencies are installed explicitly below.
+python3.14 -m pip install --no-cache-dir --no-deps \
+  "${PREREL}/flash-attn/flash_attn-2.8.3-cp314-cp314-linux_x86_64.whl" \
+  "${PREREL}/amd-aiter/amd_aiter-0.1.24.post1-cp314-cp314-linux_x86_64.whl" \
+  "${PREREL}/triton/triton-3.8.0%2Bgit669b31ac-cp314-cp314-linux_x86_64.whl"
+python3.14 -m pip install --no-cache-dir \
+  einops "pybind11>=3.0.1" ninja pandas psutil packaging "flydsl==0.3.4.1"
 
-python3.14 - << 'PY'
+VLLM_WHL="${PREREL}/vllm/vllm-0.32.1.dev0%2Bg5df63a720.d20261031.rocm102-cp314-cp314-linux_x86_64.whl"
+python3.14 -m pip install --no-cache-dir --no-deps "${VLLM_WHL}"
+
+# The vLLM wheel requires amd-quark==0.12.post1, which is not on the public index.
+# Install the other vLLM requirements from its metadata, skipping amd-quark, and pin
+# the already-installed torch/torchvision/triton so pip cannot replace them.
+python3.14 - << 'PY' > /tmp/vllm-reqs.txt
 import importlib.metadata
-import subprocess
-import sys
+from pip._vendor.packaging.requirements import Requirement
 
-skip = {"amd-quark"}
-pkgs = []
-for req in importlib.metadata.requires("vllm") or []:
-    if "extra ==" in req:
+for line in importlib.metadata.requires("vllm") or []:
+    req = Requirement(line)
+    # amd-quark is not on the public index. flash-attn, amd-aiter and triton are already
+    # installed from the explicit prerelease wheels above; letting pip resolve them here
+    # falls back to the PyPI source build of flash-attn, which needs torch at build time.
+    if req.name.lower() in ("amd-quark", "flash-attn", "amd-aiter", "triton", "vllm"):
         continue
-    spec = req.split(";")[0].strip()
-    base = (
-        spec.split("[")[0]
-        .split("=")[0]
-        .split("<")[0]
-        .split(">")[0]
-        .strip()
-        .lower()
-        .replace("_", "-")
-    )
-    if base in skip:
-        print("skip", spec)
+    if req.marker is not None and not req.marker.evaluate({"extra": ""}):
         continue
-    pkgs.append(spec)
-subprocess.check_call(
-    [
-        sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "--no-cache-dir",
-        "--pre",
-        "--ignore-installed",
-        "--extra-index-url",
-        "https://rocm.frameworks.amd.com/whl-multi-arch/vllm/",
-        "--extra-index-url",
-        "https://stable.repo.amd.com/rocm/whl-next/",
-        *pkgs,
-    ]
-)
+    print(str(req))
 PY
+# PyJWT is installed by Debian without a RECORD file, so pip cannot uninstall it
+# to upgrade. Install it over the top with --ignore-installed (no uninstall step).
+python3.14 -m pip install --no-cache-dir --ignore-installed --no-deps PyJWT
+python3.14 -m pip freeze | grep -iE '^(torch|torchvision|triton)==' > /tmp/vllm-constraints.txt || true
+python3.14 -m pip install --no-cache-dir --extra-index-url "${RC_INDEX}" \
+  -c /tmp/vllm-constraints.txt -r /tmp/vllm-reqs.txt
 
 python3.14 -m pip install --no-cache-dir --force-reinstall --no-deps \
-  --index-url https://stable.repo.amd.com/rocm/whl-next/ \
-  "torch==2.13.0+rocm10.1.0" \
-  "torchvision==0.28.0+rocm10.1.0" \
-  "triton==3.8.0+git669b31ac.rocm10.1.0"
+  --index-url "${RC_INDEX}" \
+  "torch==2.14.0+rocm10.2.0rc1" \
+  "torchvision==0.29.0+rocm10.2.0rc1"
 
 python3.14 - << 'PY'
 import importlib.metadata
@@ -88,40 +74,15 @@ if names:
     subprocess.check_call(["python3.14", "-m", "pip", "uninstall", "-y", *names])
 PY
 
-rm -rf /tmp/vllm-src
-mkdir -p /tmp/vllm-src
-git -C /tmp/vllm-src init
-git -C /tmp/vllm-src remote add origin https://github.com/vllm-project/vllm.git
-git -C /tmp/vllm-src fetch --depth 1 origin f46a9dfe2c5f57bebbd29556cbbb25eabd874226
-git -C /tmp/vllm-src checkout --detach FETCH_HEAD
-python3.14 -m pip install --no-cache-dir \
-  "packaging>=24.2" \
-  "setuptools>=77.0.3,<80" \
-  "setuptools-scm>=8" \
-  "setuptools-rust>=1.9.0"
-(
-  cd /tmp/vllm-src
-  python3.14 setup.py build_ext --inplace
-)
-python3.14 - << 'PY'
-import shutil
-from pathlib import Path
-
-dst = Path("/usr/local/lib/python3.14/dist-packages/vllm")
-for name in (
-    "_C.abi3.so",
-    "_rocm_C.abi3.so",
-    "_C_stable_libtorch.abi3.so",
-    "_moe_C_stable_libtorch.abi3.so",
-):
-    src = Path("/tmp/vllm-src/vllm") / name
-    if not src.is_file():
-        raise SystemExit(f"missing {src}")
-    shutil.copy2(src, dst / name)
-    print("installed", dst / name, src.stat().st_size)
-PY
-rm -rf /tmp/vllm-src /tmp/vllm-wheel
 ln -sfn /opt/rocm/share/amd_smi/amdsmi /usr/local/lib/python3.14/dist-packages/amdsmi
-python3.14 -c 'import torch,os; open("/etc/ld.so.conf.d/pytorch-vllm.conf","w").write(os.path.join(os.path.dirname(torch.__file__),"lib")+"\n")'
+# The base image already has /etc/ld.so.conf.d/pytorch.conf pointing at the Python 3.12
+# torch lib, so importing torch here would load the wrong libtorch_python.so. Find the
+# 3.14 torch lib path without importing torch. The "00-" prefix sorts the file before
+# pytorch.conf in any locale (locale collation ignores hyphens, so "pytorch-vllm.conf"
+# would sort after "pytorch.conf").
+TORCH_LIB=$(python3.14 -c 'import importlib.util,os; s=importlib.util.find_spec("torch"); print(os.path.join(os.path.dirname(s.origin),"lib"))')
+rm -f /etc/ld.so.conf.d/pytorch-vllm.conf
+echo "${TORCH_LIB}" > /etc/ld.so.conf.d/00-pytorch-vllm.conf
 ldconfig
-python3.14 -c 'import amdsmi; amdsmi.amdsmi_init(); import torch; print(torch.__version__, torch.version.hip); import vllm._rocm_C; print("rocm_C", vllm._rocm_C.__file__); amdsmi.amdsmi_shut_down()'
+export LD_LIBRARY_PATH="${TORCH_LIB}:${LD_LIBRARY_PATH:-}"
+python3.14 -c 'import amdsmi; amdsmi.amdsmi_init(); import torch, vllm; print(torch.__version__, torch.version.hip, vllm.__version__); amdsmi.amdsmi_shut_down()'
