@@ -98,7 +98,7 @@ ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
 # in order to ensure the public facing docs are up-to-date.
 WORKDIR /workspace/docs/examples/model_repository
 RUN mkdir -p densenet_onnx/1 && \
-    wget -O densenet_onnx/1/model.onnx \
+    curl -fL -o densenet_onnx/1/model.onnx \
             https://github.com/onnx/models/raw/main/validated/vision/classification/densenet-121/model/densenet-7.onnx
 
 # Update the qa/ directory with test executables, models, etc.
@@ -163,8 +163,8 @@ RUN mkdir -p qa/common && \
        qa/L0_implicit_state/. || true) && \
     mkdir qa/L0_data_compression/models && \
     cp -r docs/examples/model_repository/simple qa/L0_data_compression/models && \
-    cp bin/data_compressor_test qa/L0_data_compression/. && \
-    cp bin/tensor_size_test qa/L0_input_validation/. && \
+    (test -f bin/data_compressor_test && cp bin/data_compressor_test qa/L0_data_compression/. || true) && \
+    (test -f bin/tensor_size_test && cp bin/tensor_size_test qa/L0_input_validation/. || true) && \
     cp bin/metrics_api_test qa/L0_metrics/. && \
     (test -f bin/response_cache_test && cp bin/response_cache_test qa/L0_response_cache/. || true) && \
     cp bin/request_cancellation_test qa/L0_request_cancellation/. && \
@@ -203,6 +203,9 @@ RUN mkdir -p qa/custom_models/custom_sequence_int32/1 && \
         qa/custom_models/custom_dyna_sequence_int32/1/.
 
 # L0_lifecycle needs No-GPU build of identity backend.
+# The Ubuntu 24.04 ROCm cibase image has no git; cmake FetchContent needs it.
+RUN apt-get update && apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR  /workspace/tritonbuild/identity
 RUN --mount=type=secret,id=gitconfig,target=/run/secrets/gitconfig,required=false \
     export GIT_CONFIG_GLOBAL=/run/secrets/gitconfig && \

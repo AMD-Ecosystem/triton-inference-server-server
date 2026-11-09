@@ -95,13 +95,37 @@ OVERRIDE_BACKEND_CMAKE_FLAGS = {}
 THIS_SCRIPT_DIR = os.path.dirname(os.path.abspath(getsourcefile(lambda: 0)))
 
 
+def rocm_image_ref(name):
+    """Image name, with TRITON_IMAGE_TAG appended when a distro build sets it."""
+    tag = os.environ.get("TRITON_IMAGE_TAG", "").strip()
+    if not tag:
+        return name
+    return f"{name}:{tag}"
+
+
+def rocm_builder_container():
+    """Container name for the ROCm compile step. Distro builds do not share one."""
+    tag = os.environ.get("TRITON_IMAGE_TAG", "").strip()
+    if not tag:
+        return "tritonserver_builder"
+    safe = "".join(ch if ch.isalnum() else "" for ch in tag)
+    return f"tritonserver_builder_{safe}"
+
+
 def rocm_compile_tree():
     """Host directory mounted at /tmp/tritonbuild for a ROCm container build.
 
     One backend is built at a time, and each gets its own tree under
     ~/triton_work/build-<backend>. Those paths are symlinks onto /data
     because the root disk cannot hold another third-party build.
+    TRITON_ROCM_COMPILE_TREE pins a tree so one distro's build does not write
+    into another's.
     """
+    override = os.environ.get("TRITON_ROCM_COMPILE_TREE", "").strip()
+    if override:
+        host = os.path.abspath(os.path.expanduser(override))
+        os.makedirs(host, exist_ok=True)
+        return host
     names = [be.split(":")[0] for be in (FLAGS.backend or [])]
     if len(names) == 1:
         label = names[0]
@@ -1401,7 +1425,7 @@ RUN apt-get update \\
             wget \\
       && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --upgrade \\
+RUN pip3 install --upgrade --ignore-installed \\
           auditwheel \\
           build \\
           docker \\
@@ -1859,7 +1883,9 @@ RUN pip3 install --upgrade pip \\
         virtualenv
 """
         else:
-            df += """
+            # TRITON_ROCM_NUMPY_SPEC overrides the default for a one-off build.
+            numpy_spec = os.environ.get("TRITON_ROCM_NUMPY_SPEC", "").strip() or "numpy<2"
+            df += f"""
 # python3, python3-pip and some pip installs required for the python backend
 RUN apt-get update \\
       && apt-get install -y --no-install-recommends \\
@@ -1870,7 +1896,7 @@ RUN apt-get update \\
             python3-setuptools \\
             libpython3-dev \\
       && pip3 install --upgrade \\
-            \"numpy<2\" \\
+            \"{numpy_spec}\" \\
             virtualenv \\
       && rm -rf /var/lib/apt/lists/*
 """
@@ -2147,10 +2173,14 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
         )
         docker_script.comment()
 
+        buildbase_image = rocm_image_ref("tritonserver_buildbase")
+        server_image = rocm_image_ref("tritonserver")
+        cibase_image = rocm_image_ref("tritonserver_cibase")
+        builder_name = rocm_builder_container()
         cachefrommap = [
-            "tritonserver_buildbase",
-            "tritonserver_buildbase_cache0",
-            "tritonserver_buildbase_cache1",
+            buildbase_image,
+            rocm_image_ref("tritonserver_buildbase_cache0"),
+            rocm_image_ref("tritonserver_buildbase_cache1"),
         ]
         # Docker BuildKit fails the solve when --cache-from names an image
         # that is not local. ROCm builds hit that on the first run.
@@ -2170,7 +2200,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "docker",
             "build",
             "-t",
-            "tritonserver_buildbase",
+            buildbase_image,
             "-f",
             os.path.join(FLAGS.build_dir, "Dockerfile.buildbase"),
         ]
@@ -2211,7 +2241,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "-w",
             "/workspace/build",
             "--name",
-            "tritonserver_builder",
+            builder_name,
             "-e",
             "GIT_TERMINAL_PROMPT=0",  # avoid credential prompt for public FetchContent clones
         ]
@@ -2273,7 +2303,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             if os.environ.get(var):
                 runargs += ["-e", f"{var}={os.environ[var]}"]
 
-        runargs += ["tritonserver_buildbase"]
+        runargs += [buildbase_image]
 
         # Write the git config out inside the container, where the contents
         # arrived as an environment variable, and point git at it for the build
@@ -2295,7 +2325,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
 
         # Remove existing tritonserver_builder container...
         docker_script._file.write(
-            'if [ "$(docker ps -a | grep tritonserver_builder)" ]; then  docker rm -f tritonserver_builder; fi\n'
+            f'if [ "$(docker ps -aq -f name=^{builder_name}$)" ]; then docker rm -f {builder_name}; fi\n'
         )
 
         docker_script.cmd(runargs, check_exitcode=True)
@@ -2304,7 +2334,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             [
                 "docker",
                 "cp",
-                "tritonserver_builder:/tmp/tritonbuild/install",
+                f"{builder_name}:/tmp/tritonbuild/install",
                 FLAGS.build_dir,
             ],
             check_exitcode=True,
@@ -2313,7 +2343,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             [
                 "docker",
                 "cp",
-                "tritonserver_builder:/tmp/tritonbuild/ci",
+                f"{builder_name}:/tmp/tritonbuild/ci",
                 FLAGS.build_dir,
             ],
             check_exitcode=True,
@@ -2334,7 +2364,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
         finalargs += secret_build_args()
         finalargs += [
             "-t",
-            "tritonserver",
+            server_image,
             "-f",
             os.path.join(FLAGS.build_dir, "Dockerfile"),
             ".",
@@ -2354,7 +2384,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "docker",
             "build",
             "-t",
-            "tritonserver_cibase",
+            cibase_image,
             "-f",
             os.path.join(FLAGS.build_dir, "Dockerfile.cibase"),
             ".",
@@ -2485,14 +2515,15 @@ def tensorrtllm_postbuild(cmake_script, repo_install_dir, tensorrtllm_be_dir):
 
 
 def install_rocm_python314():
-    """Dockerfile fragment: CPython 3.14 next to the image Python 3.12.
+    """Dockerfile fragment: CPython 3.14 for the ROCm vLLM wheels.
 
-    The ROCm 10 vLLM wheel on the AMD index is cp314. python3 on PATH stays
-    3.12 so the rest of the ROCm image is unchanged.
+    Ubuntu 24.04 ships Python 3.12 as python3. Install 3.14 beside it from
+    deadsnakes and leave python3 unchanged. Skipped if python3.14 is present.
     """
     return """
-# vLLM ROCm 10 wheels are cp314. Keep python3 as 3.12 and add 3.14.
-RUN apt-get update \\
+# vLLM ROCm 10 wheels are cp314. Ubuntu 24.04 ships 3.12, so add 3.14 beside it.
+RUN if ! python3.14 -m pip --version >/dev/null 2>&1; then \\
+      apt-get update \\
       && apt-get install -y --no-install-recommends software-properties-common \\
       && add-apt-repository -y ppa:deadsnakes/ppa \\
       && apt-get update \\
@@ -2502,7 +2533,8 @@ RUN apt-get update \\
             python3.14-venv \\
       && python3.14 -m ensurepip --altinstall \\
       && python3.14 -m pip install --upgrade --ignore-installed pip \\
-      && rm -rf /var/lib/apt/lists/*
+      && rm -rf /var/lib/apt/lists/*; \\
+    fi
 """
 
 
@@ -3450,7 +3482,11 @@ if __name__ == "__main__":
             fail("--install-dir must not be set for container-based build")
         if FLAGS.cmake_dir is not None:
             fail("--cmake-dir must not be set for container-based build")
-        FLAGS.build_dir = os.path.join(THIS_SCRIPT_DIR, "build")
+        override = os.environ.get("TRITON_CONTAINER_BUILD_DIR", "").strip()
+        if override:
+            FLAGS.build_dir = os.path.abspath(os.path.expanduser(override))
+        else:
+            FLAGS.build_dir = os.path.join(THIS_SCRIPT_DIR, "build")
 
     # Determine the versions. Start with Triton version, if --version
     # is not explicitly specified read from TRITON_VERSION file.

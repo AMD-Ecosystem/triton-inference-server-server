@@ -73,7 +73,7 @@ RUN apt-get update \
               libnuma-dev \
               libssl-dev \
               wget \
-              libarchive13 \
+              libarchive13t64 \
               libgomp1 \
               python3-pip \
       && rm -rf /var/lib/apt/lists/*
