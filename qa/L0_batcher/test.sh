@@ -41,6 +41,7 @@ fi
 # Must run on a single device or else the TRITONSERVER_DELAY_SCHEDULER
 # can fail when the requests are distributed to multiple devices.
 export CUDA_VISIBLE_DEVICES=0
+TEST_WINDOWS=${TEST_WINDOWS:-0}
 
 BATCHER_TEST=batcher_test.py
 VERIFY_TIMESTAMPS=verify_timestamps.py
@@ -48,6 +49,10 @@ TEST_RESULT_FILE='test_results.txt'
 
 if [ -z "$TEST_VALGRIND" ]; then
     TEST_VALGRIND="0"
+fi
+
+if [ -z "$TEST_SYSTEM_SHARED_MEMORY" ]; then
+    TEST_SYSTEM_SHARED_MEMORY="0"
 fi
 
 if [ -z "$TEST_CUDA_SHARED_MEMORY" ]; then
@@ -110,8 +115,13 @@ source ../common/util.sh
 
 RET=0
 
-# If BACKENDS not specified, set to all
-BACKENDS=${BACKENDS:="onnx libtorch plan python"}
+# If BACKENDS not specified, set to all. TensorRT plan models are not part of
+# the ROCm image, so leave "plan" out when TRITON_ENABLE_ROCM=1.
+if [ "${TRITON_ENABLE_ROCM:-0}" = "1" ]; then
+    BACKENDS=${BACKENDS:="onnx libtorch python"}
+else
+    BACKENDS=${BACKENDS:="onnx libtorch plan python"}
+fi
 export BACKENDS
 
 # Basic batcher tests
@@ -905,27 +915,38 @@ INSTANCE_QUEUE_LIB_DIR="${TRITON_DIR}/lib"
 if [ ! -d "$INSTANCE_QUEUE_LIB_DIR" ]; then
     INSTANCE_QUEUE_LIB_DIR="$(dirname "$SERVER")/../lib"
 fi
-set +e
-LD_LIBRARY_PATH="${INSTANCE_QUEUE_LIB_DIR}:$LD_LIBRARY_PATH" $INSTANCE_QUEUE_TEST_EXEC >>$INSTANCE_QUEUE_TEST_LOG 2>&1
-if [ $? -ne 0 ]; then
-    cat $INSTANCE_QUEUE_TEST_LOG
-    echo -e "\n***\n*** Instance Queue Unit Test Failed\n***"
-    RET=1
+if [ ! -x "$INSTANCE_QUEUE_TEST_EXEC" ]; then
+    echo "instance_queue_test is not built for this ROCm image, skipping"
+else
+    set +e
+    LD_LIBRARY_PATH="${INSTANCE_QUEUE_LIB_DIR}:$LD_LIBRARY_PATH" $INSTANCE_QUEUE_TEST_EXEC >>$INSTANCE_QUEUE_TEST_LOG 2>&1
+    if [ $? -ne 0 ]; then
+        cat $INSTANCE_QUEUE_TEST_LOG
+        echo -e "\n***\n*** Instance Queue Unit Test Failed\n***"
+        RET=1
+    fi
+    set -e
 fi
-set -e
 
 # dynamic_batch_scheduler_test: a merged payload's exec mutex must not be
 # unlocked after the payload is destroyed.
 DYNAMIC_BATCH_SCHEDULER_TEST_LOG="./dynamic_batch_scheduler_test.log"
 DYNAMIC_BATCH_SCHEDULER_TEST_EXEC=./dynamic_batch_scheduler_test
-set +e
-LD_LIBRARY_PATH=/opt/tritonserver/lib:$LD_LIBRARY_PATH $DYNAMIC_BATCH_SCHEDULER_TEST_EXEC >>$DYNAMIC_BATCH_SCHEDULER_TEST_LOG 2>&1
-if [ $? -ne 0 ]; then
-    cat $DYNAMIC_BATCH_SCHEDULER_TEST_LOG
-    echo -e "\n***\n*** Dynamic Batch Scheduler Unit Test Failed\n***"
-    RET=1
+if [ ! -x "$DYNAMIC_BATCH_SCHEDULER_TEST_EXEC" ]; then
+    DYNAMIC_BATCH_SCHEDULER_TEST_EXEC="${TRITON_DIR}/bin/dynamic_batch_scheduler_test"
 fi
-set -e
+if [ ! -x "$DYNAMIC_BATCH_SCHEDULER_TEST_EXEC" ]; then
+    echo "dynamic_batch_scheduler_test is not built for this ROCm image, skipping"
+else
+    set +e
+    LD_LIBRARY_PATH=/opt/tritonserver/lib:$LD_LIBRARY_PATH $DYNAMIC_BATCH_SCHEDULER_TEST_EXEC >>$DYNAMIC_BATCH_SCHEDULER_TEST_LOG 2>&1
+    if [ $? -ne 0 ]; then
+        cat $DYNAMIC_BATCH_SCHEDULER_TEST_LOG
+        echo -e "\n***\n*** Dynamic Batch Scheduler Unit Test Failed\n***"
+        RET=1
+    fi
+    set -e
+fi
 
 if [ $RET -eq 0 ]; then
     echo -e "\n***\n*** Test Passed\n***"

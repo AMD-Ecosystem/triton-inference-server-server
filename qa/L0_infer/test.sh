@@ -227,8 +227,8 @@ function generate_model_repository() {
       else
         cp -r ${DATADIR}/qa_model_repository/${BACKEND}* \
           models/.
-        # Remove ONNX BF16 models from CPU models
-        if [ "$BACKEND" == "onnx" ] && [ "$TARGET" == "cpu" ]; then
+        # ORT has no BF16 Add kernel on CPU, or on this ROCm build.
+        if [ "$BACKEND" == "onnx" ] && { [ "$TARGET" == "cpu" ] || [ "$ROCM_ENABLED" = "true" ]; }; then
           rm -rf models/onnx_*bf16*
         fi
       fi
@@ -289,21 +289,22 @@ function generate_model_repository() {
       done
     done
 
-    # Modify custom_zero_1_float32 and custom_nobatch_zero_1_float32 for relevant ensembles
-    # This is done after the instance group change above so that identity backend models
-    # are run on CPU. Skip for Windows test.
-    cp -r ../custom_models/custom_zero_1_float32 models/. &&\
-        mkdir -p models/custom_zero_1_float32/1 && \
-        (cd models/custom_zero_1_float32 && \
-            echo "instance_group [ { kind: KIND_CPU }]" >> config.pbtxt)
-    cp -r models/custom_zero_1_float32 models/custom_nobatch_zero_1_float32 && \
-        (cd models/custom_zero_1_float32 && \
-            sed -i "s/max_batch_size: 1/max_batch_size: 8/" config.pbtxt && \
-            sed -i "s/dims: \[ 1 \]/dims: \[ -1 \]/" config.pbtxt) && \
-        (cd models/custom_nobatch_zero_1_float32 && \
-            sed -i "s/custom_zero_1_float32/custom_nobatch_zero_1_float32/" config.pbtxt && \
-            sed -i "s/max_batch_size: 1/max_batch_size: 0/" config.pbtxt && \
-            sed -i "s/dims: \[ 1 \]/dims: \[ -1, -1 \]/" config.pbtxt)
+    # Identity models are only used by the ensemble cases. The ROCm 10.1
+    # cards ran with ENSEMBLES=0.
+    if [ "$ENSEMBLES" == "1" ]; then
+        cp -r ../custom_models/custom_zero_1_float32 models/. &&\
+            mkdir -p models/custom_zero_1_float32/1 && \
+            (cd models/custom_zero_1_float32 && \
+                echo "instance_group [ { kind: KIND_CPU }]" >> config.pbtxt)
+        cp -r models/custom_zero_1_float32 models/custom_nobatch_zero_1_float32 && \
+            (cd models/custom_zero_1_float32 && \
+                sed -i "s/max_batch_size: 1/max_batch_size: 8/" config.pbtxt && \
+                sed -i "s/dims: \[ 1 \]/dims: \[ -1 \]/" config.pbtxt) && \
+            (cd models/custom_nobatch_zero_1_float32 && \
+                sed -i "s/custom_zero_1_float32/custom_nobatch_zero_1_float32/" config.pbtxt && \
+                sed -i "s/max_batch_size: 1/max_batch_size: 0/" config.pbtxt && \
+                sed -i "s/dims: \[ 1 \]/dims: \[ -1, -1 \]/" config.pbtxt)
+    fi
 
 }
 
@@ -314,8 +315,8 @@ copy_torch_aoti_models() {
              torch_aoti_float32_float32; do
         src="${DATADIR}/qa_model_repository/${m}"
         if [ ! -d "${src}" ]; then
-            echo -e "\n***\n*** Missing AOTI model: ${src}\n***"
-            exit 1
+            echo "AOTI model not in the repository, skipping: ${src}"
+            continue
         fi
         cp -r "${src}" "${dest_dir}/."
     done

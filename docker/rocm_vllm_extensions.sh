@@ -84,5 +84,16 @@ TORCH_LIB=$(python3.14 -c 'import importlib.util,os; s=importlib.util.find_spec(
 rm -f /etc/ld.so.conf.d/pytorch-vllm.conf
 echo "${TORCH_LIB}" > /etc/ld.so.conf.d/00-pytorch-vllm.conf
 ldconfig
+# The torch wheel bundles its own libamdhip64.so.7 (HIP 7.17.26434) under
+# _rocm_sdk_core. Triton's server and libhipdelay load /opt/rocm's copy of the same
+# HIP version. Two HIP runtimes in one process make the vLLM engine refuse to start
+# ("refusing to mix ROCm installations"), and when both are loaded the process
+# segfaults in hsa_shut_down at exit. Point the bundled path at /opt/rocm's copy so
+# each process loads one runtime. The original is kept next to it.
+SDK_LIB=$(python3.14 -c 'import importlib.util,os; s=importlib.util.find_spec("_rocm_sdk_core"); print(os.path.join(os.path.dirname(s.origin),"lib"))')
+if [ -f /opt/rocm/lib/libamdhip64.so.7 ] && [ -f "${SDK_LIB}/libamdhip64.so.7" ] && [ ! -L "${SDK_LIB}/libamdhip64.so.7" ]; then
+  mv "${SDK_LIB}/libamdhip64.so.7" "${SDK_LIB}/libamdhip64.so.7.therock-orig"
+  ln -s /opt/rocm/lib/libamdhip64.so.7 "${SDK_LIB}/libamdhip64.so.7"
+fi
 export LD_LIBRARY_PATH="${TORCH_LIB}:${LD_LIBRARY_PATH:-}"
 python3.14 -c 'import amdsmi; amdsmi.amdsmi_init(); import torch, vllm; print(torch.__version__, torch.version.hip, vllm.__version__); amdsmi.amdsmi_shut_down()'

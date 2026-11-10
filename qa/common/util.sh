@@ -217,8 +217,29 @@ function gdb_helper () {
 # Run inference server. Return once server's health endpoint shows
 # ready or timeout expires. Sets SERVER_PID to pid of SERVER, or 0 if
 # error (including expired timeout)
+# ROCm ONNX models need the MIGraphX accelerator. Without it, ORT tries
+# to copy outputs from the AMD GPU to the host and fails with
+# "no data transfer registered".
+function add_migraphx_to_onnx_configs() {
+    [ "${ROCM_ENABLED:-false}" = "true" ] || return 0
+    local arg repo cfg
+    for arg in $SERVER_ARGS; do
+        case "$arg" in
+            --model-repository=*) repo="${arg#--model-repository=}" ;;
+            *) continue ;;
+        esac
+        [ -d "$repo" ] || continue
+        while IFS= read -r cfg; do
+            grep -q 'migraphx' "$cfg" && continue
+            grep -q 'onnxruntime_onnx' "$cfg" || continue
+            printf '%s\n' 'optimization { execution_accelerators { gpu_execution_accelerator [ { name: "migraphx" } ] } }' >> "$cfg"
+        done < <(find "$repo" -name config.pbtxt)
+    done
+}
+
 function run_server () {
     SERVER_PID=0
+    add_migraphx_to_onnx_configs
 
     if [ -z "$SERVER" ]; then
         echo "=== SERVER must be defined"
@@ -567,11 +588,19 @@ remove_array_outliers() {
 }
 
 function setup_virtualenv() {
-    # Create and activate virtual environment
+    # Create and activate virtual environment.
+    # virtualenv otherwise discovers /usr/local/bin/python3, which this ROCm
+    # image points at 3.14 for the vLLM client. The server, tritonclient, and
+    # triton_shm_monitor are installed for /usr/bin/python3 (3.12).
     if [[ -v MSYSTEM ]]; then
       pip3 install pytest
     else
-      virtualenv --system-site-packages venv
+      local py="/usr/bin/python3"
+      if [ -x "$py" ]; then
+        virtualenv --system-site-packages -p "$py" venv
+      else
+        virtualenv --system-site-packages venv
+      fi
       source venv/bin/activate
       pip install pytest
     fi

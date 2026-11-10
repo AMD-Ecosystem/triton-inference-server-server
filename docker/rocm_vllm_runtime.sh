@@ -107,6 +107,10 @@ if marker not in text:
 PY
 
 python3.14 -m pip install --no-cache-dir --upgrade "openai>=2.0.0"
+# The image's boto3 1.43 needs botocore 1.43. The base image still has
+# botocore 1.35, and importing boto3 then fails with DocumentModifiedShape.
+PIP_CONSTRAINT= python3.14 -m pip install --no-cache-dir --upgrade \
+    "botocore>=1.43.126,<1.44" "s3transfer>=0.19,<0.20"
 python3.14 - << 'PY'
 import importlib.metadata
 import subprocess

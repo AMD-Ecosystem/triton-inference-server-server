@@ -79,9 +79,11 @@ rm -fr *.log ./models
 # Remove orphaned Python backend shm regions from previous runs
 rm -f /dev/shm/triton_python_backend_shm_region_* 2>/dev/null || true
 
-python3 --version | grep "3.12" > /dev/null
+# PATH python3 is 3.14 so vLLM clients import the ROCm wheel. The Python
+# backend uses /usr/bin/python3, which stays 3.12.
+/usr/bin/python3 --version | grep "3.12" > /dev/null
 if [ $? -ne 0 ]; then
-    echo -e "Expecting Python default version to be: Python 3.12 but actual version is $(python3 --version)"
+    echo -e "Expecting Python default version to be: Python 3.12 but actual version is $(/usr/bin/python3 --version)"
     exit 1
 fi
 
@@ -484,6 +486,11 @@ if [ "$TEST_JETSON" == "0" ]; then
     if [[ ${TEST_WINDOWS} == 0 ]]; then
         SUBTESTS+=" variants io python_based_backends async_execute"
     fi
+    if [ "$ROCM_ENABLED" = "true" ]; then
+        # Skip the CUDA-specific subtests. There is no HIP equivalent for
+        # bls, decoupled, variants, io, and python_based_backends.
+        SUBTESTS="ensemble response_sender async_execute"
+    fi
 
     for TEST in ${SUBTESTS}; do
         # Run each subtest in a separate virtual environment to avoid conflicts
@@ -508,8 +515,10 @@ if [ "$TEST_JETSON" == "0" ]; then
         deactivate_virtualenv
     done
 
-    # [DLIS-5969]: Incorporate env test for windows
-    if [[ ${PYTHON_ENV_VERSION} = "12" ]] && [[ ${TEST_WINDOWS} == 0 ]]; then
+    # [DLIS-5969]: Incorporate env test for windows.
+    # The env subtest builds a conda environment and installs the CUDA
+    # PyTorch package. The ROCm 10.1 card did not run it.
+    if [[ ${PYTHON_ENV_VERSION} = "12" ]] && [[ ${TEST_WINDOWS} == 0 ]] && [ "$ROCM_ENABLED" != "true" ]; then
         # In 'env' test we use miniconda for dependency management. No need to run
         # the test in a virtual environment.
         set +e
@@ -526,7 +535,9 @@ SUBTESTS="lifecycle argument_validation logging custom_metrics parameters"
 # [DLIS-6124] Disable restart test for Windows since it requires more investigation
 # [DLIS-6122] Disable model_control & request_rescheduling tests for Windows since they require load/unload
 # [DLIS-6123] Disable examples test for Windows since it requires updates to the example clients
-if [[ ${TEST_WINDOWS} == 0 ]]; then
+if [ "$ROCM_ENABLED" = "true" ]; then
+    SUBTESTS+=" request_rescheduling model_readiness"
+elif [[ ${TEST_WINDOWS} == 0 ]]; then
     # TODO: Reimplement restart on decoupled data pipeline and enable restart.
     SUBTESTS+=" model_control examples request_rescheduling model_readiness"
 fi

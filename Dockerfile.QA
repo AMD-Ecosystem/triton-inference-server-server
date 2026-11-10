@@ -425,9 +425,17 @@ RUN touch /etc/pip-qa-constraints.txt && \
     fi
 ENV PIP_CONSTRAINT=/etc/pip-qa-constraints.txt
 
-RUN pip3 install --upgrade "${QA_NUMPY_SPEC}" pillow attrdict future "grpcio==1.81.1" requests gsutil \
+# QA_PIN_INSTALLED freezes numpy from the ROCm torch stack (numpy 2). Requesting
+# numpy<2 in that case makes pip fail with ResolutionImpossible.
+RUN if [ "$QA_PIN_INSTALLED" = "1" ]; then \
+      pip3 install --upgrade pillow attrdict future "grpcio==1.81.1" requests gsutil \
                            "awscli<=1.36.40" six "grpcio-channelz==1.81.1" prettytable virtualenv \
-                           check-jsonschema
+                           check-jsonschema; \
+    else \
+      pip3 install --upgrade "${QA_NUMPY_SPEC}" pillow attrdict future "grpcio==1.81.1" requests gsutil \
+                           "awscli<=1.36.40" six "grpcio-channelz==1.81.1" prettytable virtualenv \
+                           check-jsonschema; \
+    fi
 
 # go needed for example go client test.
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
@@ -469,6 +477,10 @@ RUN --mount=type=secret,id=triton_ci_pip_extra_values,env=TRITON_CI_PYPI_EXTRA_V
         find qa/pkgs/ -maxdepth 1 -type f -name \
         "tritonclient-*any*.whl" -exec pip3 install --upgrade {}[all] \; ; \
     fi
+# Server QA runs on /usr/bin/python3 (3.12). pip3 above may be 3.14, and the
+# HTTP extra is what the L0 clients import. geventhttpclient 2.6 breaks that client.
+RUN whl=$(find qa/pkgs -maxdepth 1 -name 'tritonclient-*any*.whl' | head -1) && \
+    /usr/bin/python3 -m pip install --upgrade "${whl}[http,grpc]" "geventhttpclient<=2.3.3"
 
 ENV LD_LIBRARY_PATH /opt/tritonserver/qa/clients:${LD_LIBRARY_PATH}
 
