@@ -230,8 +230,16 @@ function add_migraphx_to_onnx_configs() {
         esac
         [ -d "$repo" ] || continue
         while IFS= read -r cfg; do
-            grep -q 'migraphx' "$cfg" && continue
             grep -q 'onnxruntime_onnx' "$cfg" || continue
+            # MIGraphX on this ROCm build miscompiles the Cast-to-int32
+            # integer graphs and crashes on Cast-to-string. The CPU EP
+            # returns the values the test expects. Float models stay on the
+            # GPU with MIGraphX, which is what provides the GPU data transfer.
+            if grep -qE 'TYPE_(INT8|INT16|INT64|UINT8|UINT16|UINT32|UINT64|STRING|BOOL)' "$cfg"; then
+                sed -i 's/KIND_GPU/KIND_CPU/g' "$cfg"
+                continue
+            fi
+            grep -q 'migraphx' "$cfg" && continue
             printf '%s\n' 'optimization { execution_accelerators { gpu_execution_accelerator [ { name: "migraphx" } ] } }' >> "$cfg"
         done < <(find "$repo" -name config.pbtxt)
     done
