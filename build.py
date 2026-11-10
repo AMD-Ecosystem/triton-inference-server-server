@@ -344,6 +344,39 @@ class BuildScript:
             self.cmd("}" if target_platform() == "windows" else "fi")
 
 
+def patch_ort_git_clone_b_to_fetch(cmake_script, dest, repo_arg, ref_arg):
+    """Replace `git clone -b` in gen_ort_dockerfile.py so REF can be a branch, tag, or commit."""
+    gen = "onnxruntime/tools/gen_ort_dockerfile.py"
+    old = (
+        "git clone ${{"
+        + repo_arg
+        + "}} --recursive -b ${{"
+        + ref_arg
+        + "}} "
+        + dest
+    )
+    new = (
+        "git init "
+        + dest
+        + " \\&\\& git -C "
+        + dest
+        + " remote add origin ${{"
+        + repo_arg
+        + "}} \\&\\& git -C "
+        + dest
+        + " fetch --depth 1 origin ${{"
+        + ref_arg
+        + "}} \\&\\& git -C "
+        + dest
+        + " checkout --detach FETCH_HEAD \\&\\& git -C "
+        + dest
+        + " submodule update --init --recursive"
+    )
+    cmake_script.cmd(
+        f"if grep -q '{old}' {gen}; then sed -i 's#{old}#{new}#' {gen}; fi"
+    )
+
+
 def cmake_core_arg(name, type, value):
     # Return cmake -D setting to set name=value for core build. Use
     # command-line specified value if one is given.
@@ -2602,6 +2635,20 @@ def backend_build(
             "xargs sed -i \"s#--build_wheel#--build_wheel --compile_no_warning_as_error#\"; "
             "fi"
         )
+        # git clone -b accepts only a branch/tag. Fetch/checkout accepts a
+        # branch, tag, or commit (same pattern as --rocmlir-commit).
+        cmake_script.comment(
+            "MIGraphX and onnxruntime-ep-amdgpu: fetch branch, tag, or commit"
+        )
+        patch_ort_git_clone_b_to_fetch(
+            cmake_script, "migraphx_src", "MIGRAPHX_REPO", "MIGRAPHX_BRANCH"
+        )
+        patch_ort_git_clone_b_to_fetch(
+            cmake_script,
+            "onnxruntime-ep-amdgpu",
+            "MIGRAPHX_EP_REPO",
+            "MIGRAPHX_EP_BRANCH",
+        )
     elif be == "python" and FLAGS.enable_rocm:
         # Use AMD-specific python_backend fork for ROCm support
         cmake_script.gitclone(
@@ -3416,7 +3463,8 @@ if __name__ == "__main__":
         required=False,
         type=str,
         default="remove_output_concats2",
-        help="MIGraphX git branch when building from source. Used by onnxruntime backend.",
+        help="MIGraphX git branch, tag, or commit when building from source. "
+        "Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--migraphx-build-mode",
@@ -3479,18 +3527,14 @@ if __name__ == "__main__":
         "instead of cloning. When set, this directory is copied into the build "
         "tree in place of the upstream clone. Used by onnxruntime backend (ROCm).",
     )
-    # Temporary: the stock AMD plugin binds MIGraphX "#output_N" to ORT
-    # GetOutput(N) by position. After Kahn-sort + GraphToProto those index
-    # spaces can disagree, so GPU ONNX heads land on the wrong names vs CPU.
-    # ffloresy/fix-output-name-remap maps #output_N onto the fused-node slot
-    # by ONNX name. Switch these two defaults back to
-    # onnxruntime/onnxruntime-ep-amdgpu.git + cleanup_pad_slice_overhead
-    # once that remap is upstream.
+    # Default pin is onnxruntime/onnxruntime-ep-amdgpu@71e1b3d ("Cleanup pad
+    # slice overhead" #148 on main), which includes the #output_N-by-name remap.
+    # Pass --migraphx-ep-branch=main to follow the branch tip instead.
     parser.add_argument(
         "--migraphx-ep-repo",
         required=False,
         type=str,
-        default="https://github.com/ffloresy/onnxruntime-ep-amdgpu.git",
+        default="https://github.com/onnxruntime/onnxruntime-ep-amdgpu.git",
         help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git repo URL when "
         "building from source. Produces libmigraphx-ep.so. Used by onnxruntime backend.",
     )
@@ -3498,9 +3542,11 @@ if __name__ == "__main__":
         "--migraphx-ep-branch",
         required=False,
         type=str,
-        default="fix-output-name-remap",
-        help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git branch when "
-        "building from source. Used by onnxruntime backend.",
+        default="71e1b3d9345044b574fddeb9d53b91dd5fdb39be",
+        help="MIGraphX plugin EP (onnxruntime-ep-amdgpu) git branch, tag, or "
+        "commit when building from source. Default is commit 71e1b3d "
+        "(Cleanup pad slice overhead #148 on main). Pass 'main' to follow "
+        "the branch tip. Used by onnxruntime backend.",
     )
     parser.add_argument(
         "--standalone-openvino-version",
