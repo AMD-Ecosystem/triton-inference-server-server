@@ -79,11 +79,11 @@ rm -fr *.log ./models
 # Remove orphaned Python backend shm regions from previous runs
 rm -f /dev/shm/triton_python_backend_shm_region_* 2>/dev/null || true
 
-# PATH python3 is 3.14 so vLLM clients import the ROCm wheel. The Python
-# backend uses /usr/bin/python3, which stays 3.12.
-/usr/bin/python3 --version | grep "3.12" > /dev/null
+# Ubuntu 24.04's /usr/bin/python3 is 3.12. Ubuntu 26.04's is 3.14.
+# Either is the interpreter the Python backend runs.
+/usr/bin/python3 --version | grep -E "3\.(12|14)" > /dev/null
 if [ $? -ne 0 ]; then
-    echo -e "Expecting Python default version to be: Python 3.12 but actual version is $(/usr/bin/python3 --version)"
+    echo -e "Expecting Python default version to be 3.12 or 3.14 but actual version is $(/usr/bin/python3 --version)"
     exit 1
 fi
 

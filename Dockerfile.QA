@@ -143,19 +143,21 @@ RUN mkdir -p qa/common && \
     cp -r docs/examples/model_repository/simple qa/L0_https/models/. && \
     mkdir qa/L0_secure_grpc/models && \
     cp -r docs/examples/model_repository/simple qa/L0_secure_grpc/models/. && \
-    cp bin/simple qa/L0_simple_lib/. && \
+    (test -f bin/simple && cp bin/simple qa/L0_simple_lib/. || true) && \
     cp bin/memory_alloc qa/L0_io/. && \
-    cp bin/multi_server qa/L0_multi_server/. && \
+    (test -f bin/multi_server && cp bin/multi_server qa/L0_multi_server/. || true) && \
     (test -f bin/memory_test && cp bin/memory_test qa/L0_memory/. || true) && \
     (test -f bin/pinned_memory_manager_test && cp bin/pinned_memory_manager_test qa/L0_memory/. || true) && \
     mkdir -p qa/L0_memory/python_models/repeat_int32/1 && \
     cp bin/repo_agent_test qa/L0_triton_repo_agent/. && \
-    cp lib/libtritonrepoagent_relocation.so qa/L0_triton_repo_agent/. && \
+    (test -f lib/libtritonrepoagent_relocation.so && cp lib/libtritonrepoagent_relocation.so qa/L0_triton_repo_agent/. || true) && \
     mkdir qa/L0_query/models/query/1 && \
-    cp tritonbuild/tritonserver/backends/query/libtriton_query.so qa/L0_query/models/query/1/. && \
+    (test -f tritonbuild/tritonserver/backends/query/libtriton_query.so && \
+       cp tritonbuild/tritonserver/backends/query/libtriton_query.so qa/L0_query/models/query/1/. || true) && \
     cp bin/query_test qa/L0_query/. && \
     mkdir qa/L0_iterative_sequence/models/iterative_sequence/1 && \
-    cp tritonbuild/tritonserver/backends/iterative_sequence/libtriton_iterative_sequence.so qa/L0_iterative_sequence/models/iterative_sequence/1/. && \
+    (test -f tritonbuild/tritonserver/backends/iterative_sequence/libtriton_iterative_sequence.so && \
+       cp tritonbuild/tritonserver/backends/iterative_sequence/libtriton_iterative_sequence.so qa/L0_iterative_sequence/models/iterative_sequence/1/. || true) && \
     cp bin/register_api_test qa/L0_register/. && \
     cp bin/async_work_queue_test qa/L0_async_work_queue/. && \
     (test -f tritonbuild/tritonserver/backends/implicit_state/libtriton_implicit_state.so && \
@@ -199,25 +201,35 @@ RUN mkdir -p qa/custom_models/custom_sequence_int32/1 && \
         cp tritonbuild/tritonserver/backends/sequence/libtriton_sequence.so \
         qa/custom_models/custom_sequence_int32/1/. || true) && \
     mkdir -p qa/custom_models/custom_dyna_sequence_int32/1 && \
-    cp tritonbuild/tritonserver/backends/dyna_sequence/libtriton_dyna_sequence.so \
-        qa/custom_models/custom_dyna_sequence_int32/1/.
+    (test -f tritonbuild/tritonserver/backends/dyna_sequence/libtriton_dyna_sequence.so && \
+        cp tritonbuild/tritonserver/backends/dyna_sequence/libtriton_dyna_sequence.so \
+        qa/custom_models/custom_dyna_sequence_int32/1/. || true)
 
-# L0_lifecycle needs No-GPU build of identity backend.
-# The Ubuntu 24.04 ROCm cibase image has no git; cmake FetchContent needs it.
+# L0_lifecycle needs a CPU-only identity backend. The ROCm sources are
+# hipified, so that CPU rebuild does not compile; use the identity already
+# built into this image. The cibase image has no git; cmake FetchContent needs it.
 RUN apt-get update && apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR  /workspace/tritonbuild/identity
 RUN --mount=type=secret,id=gitconfig,target=/run/secrets/gitconfig,required=false \
-    export GIT_CONFIG_GLOBAL=/run/secrets/gitconfig && \
-    rm -rf install build && mkdir build && cd build && \
-    cmake -DTRITON_ENABLE_GPU=OFF \
-        -DCMAKE_INSTALL_PREFIX:PATH=/workspace/tritonbuild/identity/install \
-        -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION} \
-        -DTRITON_COMMON_REPO_TAG:STRING=${TRITON_COMMON_REPO_TAG} \
-        -DTRITON_CORE_REPO_TAG:STRING=${TRITON_CORE_REPO_TAG} \
-        -DTRITON_THIRD_PARTY_REPO_TAG:STRING=${TRITON_THIRD_PARTY_REPO_TAG} \
-        -DTRITON_BACKEND_REPO_TAG:STRING=${TRITON_BACKEND_REPO_TAG} .. && \
-    make -j16 install
+    if echo "$TRITON_ENABLE_ROCM" | grep -qiE '^(1|on|true)$'; then \
+        if [ -f /workspace/backends/identity/libtriton_identity.so ]; then \
+            mkdir -p /workspace/tritonbuild/identity/install/backends/identity && \
+            cp /workspace/backends/identity/libtriton_identity.so \
+                /workspace/tritonbuild/identity/install/backends/identity/; \
+        fi; \
+    else \
+        export GIT_CONFIG_GLOBAL=/run/secrets/gitconfig && \
+        rm -rf install build && mkdir build && cd build && \
+        cmake -DTRITON_ENABLE_GPU=OFF \
+            -DCMAKE_INSTALL_PREFIX:PATH=/workspace/tritonbuild/identity/install \
+            -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION} \
+            -DTRITON_COMMON_REPO_TAG:STRING=${TRITON_COMMON_REPO_TAG} \
+            -DTRITON_CORE_REPO_TAG:STRING=${TRITON_CORE_REPO_TAG} \
+            -DTRITON_THIRD_PARTY_REPO_TAG:STRING=${TRITON_THIRD_PARTY_REPO_TAG} \
+            -DTRITON_BACKEND_REPO_TAG:STRING=${TRITON_BACKEND_REPO_TAG} .. && \
+        make -j16 install; \
+    fi
 
 # L0_backend_python test require triton_shm_monitor
 ARG TRITON_BOOST_URL="https://archives.boost.io/release/1.80.0/source/boost_1_80_0.tar.gz"
@@ -337,8 +349,9 @@ RUN mkdir -p qa/L0_repoagent_checksum/models/identity_int32/1 && \
     cp tritonbuild/identity/install/backends/identity/libtriton_identity.so \
         qa/L0_repoagent_checksum/models/identity_int32/1/.
 RUN mkdir -p qa/L0_passive_instance/models/distributed_int32_int32_int32/1 && \
-    cp tritonbuild/tritonserver/backends/distributed_addsub/libtriton_distributed_addsub.so \
-        qa/L0_passive_instance/models/distributed_int32_int32_int32/1/.
+    (test -f tritonbuild/tritonserver/backends/distributed_addsub/libtriton_distributed_addsub.so && \
+        cp tritonbuild/tritonserver/backends/distributed_addsub/libtriton_distributed_addsub.so \
+        qa/L0_passive_instance/models/distributed_int32_int32_int32/1/. || true)
 
 ############################################################################
 ## Copy artifacts from sdk container
@@ -374,14 +387,14 @@ ENV TRITON_ENABLE_ROCM=${TRITON_ENABLE_ROCM}
 
 # install platform specific packages
 RUN --mount=type=secret,id=apt_sources,target=/etc/apt/sources.list.d/nvidia-artifactory-ubuntu.list,required=false \
-    if grep -qE '^VERSION_ID="(18\.04|20\.04|22\.04|24\.04)' /etc/os-release; then \
+    if grep -qE '^VERSION_ID="(18\.04|20\.04|22\.04|24\.04|26\.04)' /etc/os-release; then \
         apt-get update && \
         apt-get install -y --no-install-recommends \
                 libpng-dev && \
         apt-get clean && \
         rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     else \
-        echo "Ubuntu version must be either 18.04, 20.04, 22.04 or 24.04" && \
+        echo "Ubuntu version must be either 18.04, 20.04, 22.04, 24.04 or 26.04" && \
         exit 1; \
     fi
 
