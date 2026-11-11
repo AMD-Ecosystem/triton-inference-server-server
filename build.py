@@ -140,6 +140,31 @@ def rocm_compile_tree():
     return os.path.abspath(host)
 
 
+def container_build_dir_relocated():
+    """True when TRITON_CONTAINER_BUILD_DIR moved the build dir out of build/.
+
+    The image builds use this repo as their context, and COPY . . puts any
+    old build/ tree from an earlier run into the builder image. A relocated
+    build dir has to be named explicitly or those stale files are used.
+    """
+    if FLAGS.no_container_build:
+        return False
+    return os.path.abspath(FLAGS.build_dir) != os.path.join(THIS_SCRIPT_DIR, "build")
+
+
+def container_build_copy_src(path):
+    """COPY source for a file docker_build copied out of the builder."""
+    if container_build_dir_relocated():
+        return f"--from=tritonbuild {path}"
+    return f"build/{path}"
+
+
+def container_build_context_args():
+    if container_build_dir_relocated():
+        return ["--build-context", f"tritonbuild={os.path.abspath(FLAGS.build_dir)}"]
+    return []
+
+
 def rocm_local_src_bind_mounts():
     """Bind local AMD backend/core trees into the builder when present.
 
@@ -660,6 +685,22 @@ def cache_cmake_args(images, components, cache, install_dir):
     cargs.append(cmake_cache_enable("TRITON_ENABLE_GPU", FLAGS.enable_gpu))
     cargs.append(cmake_cache_enable("TRITON_ENABLE_ROCM", FLAGS.enable_rocm))
     cargs.append(cmake_cache_arg("TRITON_LINUX_DISTRO", "STRING", FLAGS.linux_distro))
+    if FLAGS.enable_rocm:
+        # The cache repo fetches core and the backend library. Those ROCm
+        # branches exist only on the AMD forks, which are bind-mounted.
+        local_mounts = rocm_local_src_bind_mounts()
+        if any(dest == "/mnt/core" for _, dest in local_mounts):
+            cargs.append(
+                cmake_cache_arg(
+                    "FETCHCONTENT_SOURCE_DIR_REPO-CORE", "PATH", "/mnt/core"
+                )
+            )
+        if any(dest == "/mnt/backend" for _, dest in local_mounts):
+            cargs.append(
+                cmake_cache_arg(
+                    "FETCHCONTENT_SOURCE_DIR_REPO-BACKEND", "PATH", "/mnt/backend"
+                )
+            )
     cargs += cmake_cache_extra_args()
     cargs.append("..")
     return cargs
@@ -1558,7 +1599,7 @@ FROM ${BASE_IMAGE}
 ARG TRITON_VERSION
 ARG TRITON_CONTAINER_VERSION
 
-COPY build/ci /workspace
+COPY """ + container_build_copy_src("ci") + """ /workspace
 
 WORKDIR /workspace
 
@@ -1628,8 +1669,13 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
     df += f"""
 WORKDIR /opt
-COPY build/install tritonserver
+COPY {container_build_copy_src("install")} tritonserver
 """
+    # The "all" extra pulls cupy-cuda13x, which is a CUDA package and also
+    # conflicts with the numpy 2 stack the ROCm torch wheel needs.
+    wheel_extra = FLAGS.triton_wheels_dependencies_group
+    if FLAGS.enable_rocm and wheel_extra == "all":
+        wheel_extra = "test"
     df += f"""
 WORKDIR /opt/tritonserver
 COPY NVIDIA_Deep_Learning_Container_License.pdf .
@@ -1646,7 +1692,7 @@ RUN set -e; \\
         echo "ERROR: ${{pkg}}-*.whl missing from /opt/tritonserver/python -- build did not stage the wheel into the image" >&2; \\
         exit 1; \\
       fi; \\
-      printf '%s\\n' "$wheels" | xargs -I {{}} python3 -m pip install --upgrade "{{}}[{FLAGS.triton_wheels_dependencies_group}]"; \\
+      printf '%s\\n' "$wheels" | xargs -I {{}} python3 -m pip install --upgrade "{{}}[{wheel_extra}]"; \\
     done
 
 RUN pip3 install -r python/openai/requirements.txt
@@ -1895,7 +1941,7 @@ RUN apt-get update \\
             python3-wheel \\
             python3-setuptools \\
             libpython3-dev \\
-      && pip3 install --upgrade \\
+      && pip3 install --upgrade --ignore-installed \\
             \"{numpy_spec}\" \\
             virtualenv \\
       && rm -rf /var/lib/apt/lists/*
@@ -2259,6 +2305,13 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             runargs += ["-it"]
 
         runargs += ["-v", "/var/run/docker.sock:/var/run/docker.sock"]
+        if container_build_dir_relocated():
+            runargs += [
+                "-v",
+                "{}:/workspace/build/cmake_build:ro".format(
+                    os.path.join(os.path.abspath(FLAGS.build_dir), "cmake_build")
+                ),
+            ]
         if FLAGS.enable_rocm:
             for src, dest in rocm_local_src_bind_mounts():
                 runargs += ["-v", "{}:{}:ro".format(src, dest)]
@@ -2362,6 +2415,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "build",
         ]
         finalargs += secret_build_args()
+        finalargs += container_build_context_args()
         finalargs += [
             "-t",
             server_image,
@@ -2383,6 +2437,9 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
         cibaseargs = [
             "docker",
             "build",
+        ]
+        cibaseargs += container_build_context_args()
+        cibaseargs += [
             "-t",
             cibase_image,
             "-f",
@@ -2688,6 +2745,26 @@ def backend_build(
         # TensorFlow ROCm backend is already built above, skip normal build
         pass
     else:
+        if FLAGS.enable_rocm and be in ("identity", "repeat", "square"):
+            # These helpers are cloned from the CUDA tree. The ROCm backend
+            # headers rename CudaStream to RocmStream, so the helpers have to
+            # go through the same hipify as the backend library.
+            cmake_script.comment(
+                f"Hipify {be} so it matches the ROCm backend headers"
+            )
+            cmake_script.cmd(
+                "find {src} -type f \\( -name '*.cc' -o -name '*.h' -o -name '*.cu' \\) "
+                "| while read -r f; do "
+                "if grep -q -i cuda \"$f\"; then "
+                "python3 /mnt/backend/amd_hipify.py --hipify_perl \"$(command -v hipify-perl)\" "
+                "\"$f\" -o \"$f.hip\" && mv \"$f.hip\" \"$f\" && "
+                "sed -i "
+                "-e 's/hipSetDevice(/ (void)hipSetDevice(/g' "
+                "-e 's/hipStreamSynchronize(/ (void)hipStreamSynchronize(/g' "
+                "-e 's/const char\\* input_name;/const char* input_name = nullptr;/' "
+                "\"$f\"; "
+                "fi; done".format(src=os.path.join(build_dir, be))
+            )
         cmake_script.mkdir(repo_build_dir)
         cmake_script.cwd(repo_build_dir)
         cmake_script.cmake(
