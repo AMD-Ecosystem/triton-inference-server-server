@@ -1679,6 +1679,14 @@ COPY {container_build_copy_src("install")} tritonserver
     df += f"""
 WORKDIR /opt/tritonserver
 COPY NVIDIA_Deep_Learning_Container_License.pdf .
+# Ubuntu 26.04 ships typing_extensions and packaging without a pip RECORD.
+# The wheel test extra upgrades them, and pip will not uninstall the Debian
+# copies. Replace those two with pip-managed copies first. Do not pass
+# --ignore-installed to the wheel install: it hides the tritonserver wheel
+# just installed, and pip then tries to build that package from this source tree.
+RUN python3 -m pip install --upgrade --ignore-installed \\
+      'typing_extensions>=4.16' \\
+      'packaging>=24'
 # TRI-1118 — fail fast if either tritonserver or tritonfrontend wheel is
 # missing from /opt/tritonserver/python. The legacy `find | xargs -I` is
 # a silent no-op when find returns zero matches: xargs runs the command
