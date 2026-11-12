@@ -33,6 +33,31 @@ RUN apt-get update && \
         zip && \
     rm -rf /var/lib/apt/lists/*
 
+# Optional: trust extra CA certificates (e.g. a corporate TLS-inspection root).
+# Drop *.crt (PEM) files into ./extra-ca/ before building. Bazel's Java
+# downloader does not use the OS trust store, so also build a Java truststore
+# and point Bazel (and pip/curl inside Bazel repo rules) at it. If no
+# certificates are present this is a no-op.
+COPY extra-ca/ /tmp/extra-ca/
+RUN if ls /tmp/extra-ca/*.crt >/dev/null 2>&1; then \
+      mkdir -p /usr/local/share/ca-certificates/extra && \
+      cp /tmp/extra-ca/*.crt /usr/local/share/ca-certificates/extra/ && \
+      apt-get update && \
+      apt-get install -y --no-install-recommends ca-certificates-java default-jre-headless && \
+      update-ca-certificates && \
+      rm -rf /var/lib/apt/lists/* && \
+      { echo 'startup --host_jvm_args=-Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts'; \
+        echo 'startup --host_jvm_args=-Djavax.net.ssl.trustStorePassword=changeit'; \
+        echo 'common --repo_env=SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt'; \
+        echo 'common --repo_env=PIP_CERT=/etc/ssl/certs/ca-certificates.crt'; \
+        echo 'common --repo_env=REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt'; \
+      } >> /etc/bazel.bazelrc; \
+    fi && rm -rf /tmp/extra-ca
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 # Locale setup for Debian.
 RUN sed -i 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/g' /etc/locale.gen
 RUN echo 'LANG=en_US.UTF-8' > /etc/default/locale

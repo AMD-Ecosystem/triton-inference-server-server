@@ -24,3 +24,6 @@ custom_tokenizer
 
 # generated files
 gen.*
+# Local CA certs for TLS-inspecting proxies
+extra-ca/*.crt
+extra-ca/*.pem
