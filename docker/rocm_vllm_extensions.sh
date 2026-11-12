@@ -51,6 +51,11 @@ PY
 # PyJWT is installed by Debian without a RECORD file, so pip cannot uninstall it
 # to upgrade. Install it over the top with --ignore-installed (no uninstall step).
 python3.14 -m pip install --no-cache-dir --ignore-installed --no-deps PyJWT
+# typing_extensions and packaging are Debian-managed on Ubuntu 26.04 with no RECORD
+# file. The vLLM requirements upgrade them, and pip cannot uninstall the Debian copies.
+# Replace them with pip-managed copies first.
+python3.14 -m pip install --no-cache-dir --ignore-installed --no-deps \
+  "typing_extensions>=4.16" "packaging>=24"
 python3.14 -m pip freeze | grep -iE '^(torch|torchvision|triton)==' > /tmp/vllm-constraints.txt || true
 python3.14 -m pip install --no-cache-dir --extra-index-url "${RC_INDEX}" \
   -c /tmp/vllm-constraints.txt -r /tmp/vllm-reqs.txt
