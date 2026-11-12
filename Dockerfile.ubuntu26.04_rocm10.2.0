@@ -1,12 +1,12 @@
 #
-# Ubuntu 24.04 + ROCm 10.2.0 + Python 3.12 thin base.
-# Optional: docker build -t localhost/ubuntu24.04_rocm10.2.0rc1 \
-#   -f Dockerfile.ubuntu24.04_rocm10.2.0 .
-# python3 build.py --enable-rocm uses rocm/rocm-staging:ubuntu-24.04_10.2.0rc1-full
-# directly; pass --image=base,localhost/ubuntu24.04_rocm10.2.0rc1 to use this.
+# Ubuntu 26.04 + ROCm 10.2.0 + Python 3.14 thin base.
+# Optional: docker build -t localhost/ubuntu26.04_rocm10.2.0rc1 \
+#   -f Dockerfile.ubuntu26.04_rocm10.2.0 .
+# python3 build.py --enable-rocm uses rocm/rocm-staging:ubuntu-26.04_10.2.0rc1-full
+# directly; pass --image=base,localhost/ubuntu26.04_rocm10.2.0rc1 to use this.
 #
 
-FROM rocm/rocm-staging:ubuntu-24.04_10.2.0rc1-full
+FROM rocm/rocm-staging:ubuntu-26.04_10.2.0rc1-full
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -37,7 +37,7 @@ RUN apt-get update && \
         libevent-dev \
         libb64-0d \
         libcurl4-openssl-dev \
-        libre2-10 \
+        libre2-11 \
         libre2-dev \
         libnuma-dev \
         libnuma1 \
