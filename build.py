@@ -751,8 +751,8 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
         ),
     ]
 
-    # rocm10.2.0_r26.11 is a local branch. AMD-Ecosystem does not have it,
-    # and a shallow FetchContent clone then fails with "invalid reference".
+    # Use the local checkouts of rocm10.2.0_r26.11_ubuntu2404 for core and backend,
+    # so FetchContent does not clone that branch from AMD-Ecosystem.
     if FLAGS.enable_rocm:
         local_mounts = rocm_local_src_bind_mounts()
         if any(dest == "/mnt/core" for _, dest in local_mounts):
@@ -2658,7 +2658,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-onnxruntime_backend",
-                "rocm10.2.0_r26.11",
+                "rocm10.2.0_r26.11_ubuntu2404",
                 be,
                 "https://github.com/AMD-Ecosystem",
             )
@@ -2668,7 +2668,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-python_backend",
-                "rocm10.2.0_r26.11",
+                "rocm10.2.0_r26.11_ubuntu2404",
                 "python",
                 "https://github.com/AMD-Ecosystem",
             )
@@ -2678,7 +2678,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-pytorch_backend",
-                "rocm10.2.0_r26.11",
+                "rocm10.2.0_r26.11_ubuntu2404",
                 "pytorch",
                 "https://github.com/AMD-Ecosystem",
             )
@@ -3808,9 +3808,9 @@ if __name__ == "__main__":
     if FLAGS.enable_rocm:
         components = {
             "common": default_repo_tag,
-            "core": "rocm10.2.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-core
-            "backend": "rocm10.2.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
-            "thirdparty": "rocm10.2.0_r26.11",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
+            "core": "rocm10.2.0_r26.11_ubuntu2404",  # https://github.com/AMD-Ecosystem/triton-inference-server-core
+            "backend": "rocm10.2.0_r26.11_ubuntu2404",  # https://github.com/AMD-Ecosystem/triton-inference-server-backend
+            "thirdparty": "rocm10.2.0_r26.11_ubuntu2404",  # https://github.com/AMD-Ecosystem/triton-inference-server-third_party
         }
         local_mounts = rocm_local_src_bind_mounts()
         if any(dest == "/mnt/core" for _, dest in local_mounts):
@@ -3965,7 +3965,7 @@ if __name__ == "__main__":
             if be == "vllm":
                 if FLAGS.enable_rocm:
                     github_organization = "https://github.com/AMD-Ecosystem"
-                    backends[be] = "rocm10.2.0_r26.11"
+                    backends[be] = "rocm10.2.0_r26.11_ubuntu2404"
                 backend_clone(
                     be,
                     cmake_script,
