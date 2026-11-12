@@ -32,7 +32,7 @@
 
 ----
 
-## This branch (`rocm10.1_r25.12`)
+## This branch (`psakhamo/rocm10.1_r25.12`)
 
 This checkout is **not** the stock ROCm 7.2.3 README flow. It is the
 AMD-Ecosystem ROCm 10.1 branch with:
@@ -44,7 +44,7 @@ AMD-Ecosystem ROCm 10.1 branch with:
 Clone this tree, not `ROCm/triton-inference-server-server` @ `rocm7.2.3_r25.12`:
 
 ```bash
-git clone -b rocm10.1_r25.12 \
+git clone -b psakhamo/rocm10.1_r25.12 \
   https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
 ```
@@ -69,7 +69,7 @@ This repository contains ROCm-enabled builds of Triton Inference Server for AMD 
 
 | Component | Repository | Branch / tag / image |
 |-----------|------------|----------------------|
-| Server (this repo) | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server) | `rocm10.1_r25.12` |
+| Server (this repo) | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server) | `psakhamo/rocm10.1_r25.12` |
 | Core | [ROCm/triton-inference-server-core](https://github.com/ROCm/triton-inference-server-core) | `rocm7.2_r25.12` |
 | Backend | [ROCm/triton-inference-server-backend](https://github.com/ROCm/triton-inference-server-backend) | `rocm7.2_r25.12` |
 | Third Party | [ROCm/triton-inference-server-third_party](https://github.com/ROCm/triton-inference-server-third_party) | `rocm7.2_r25.12` |
