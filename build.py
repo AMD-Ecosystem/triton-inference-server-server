@@ -112,34 +112,6 @@ def rocm_builder_container():
     return f"tritonserver_builder_{safe}"
 
 
-def rocm_compile_tree():
-    """Host directory mounted at /tmp/tritonbuild for a ROCm container build.
-
-    One backend is built at a time, and each gets its own tree under
-    ~/triton_work/build-<backend>. Those paths are symlinks onto /data
-    because the root disk cannot hold another third-party build.
-    TRITON_ROCM_COMPILE_TREE pins a tree so one distro's build does not write
-    into another's.
-    """
-    override = os.environ.get("TRITON_ROCM_COMPILE_TREE", "").strip()
-    if override:
-        host = os.path.abspath(os.path.expanduser(override))
-        os.makedirs(host, exist_ok=True)
-        return host
-    names = [be.split(":")[0] for be in (FLAGS.backend or [])]
-    if len(names) == 1:
-        label = names[0]
-    elif not names:
-        label = "server"
-    else:
-        label = "combined-" + "-".join(names)
-    host = os.path.expanduser(
-        os.path.join("~", "triton_work", "build-" + label, "tritonbuild")
-    )
-    os.makedirs(host, exist_ok=True)
-    return os.path.abspath(host)
-
-
 def container_build_dir_relocated():
     """True when TRITON_CONTAINER_BUILD_DIR moved the build dir out of build/.
 
@@ -2292,10 +2264,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "GIT_TERMINAL_PROMPT=0",  # avoid credential prompt for public FetchContent clones
         ]
 
-        # ROCm builds keep each backend's compile tree off the root disk.
-        if FLAGS.enable_rocm and target_platform() != "windows":
-            runargs += ["-v", "{}:/tmp/tritonbuild".format(rocm_compile_tree())]
-        elif getattr(FLAGS, "reuse_third_party_build", False) and target_platform() != "windows":
+        if getattr(FLAGS, "reuse_third_party_build", False) and target_platform() != "windows":
             tritonbuild_cache = os.path.abspath(
                 os.path.join(FLAGS.build_dir, "tritonbuild_cache")
             )
