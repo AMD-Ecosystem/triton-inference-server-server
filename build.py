@@ -2584,6 +2584,17 @@ RUN uv pip install --system --no-cache --break-system-packages vllm --pre \\
     return df
 
 
+def rocm_repo_tag():
+    """Git tag for the ROCm core, backend, third_party, and backend repos.
+
+    Debian 12 builds use the rocm10.2_r26.10_debian12 branches. Ubuntu builds
+    keep the rocm10.2.0_r26.11_ubuntu2604 tags.
+    """
+    if getattr(FLAGS, "linux_distro", "ubuntu") == "debian":
+        return "rocm10.2_r26.10_debian12"
+    return "rocm10.2.0_r26.11_ubuntu2604"
+
+
 def rocm_local_src_bind_mounts():
     """Bind local ROCm 10.2 checkouts into the builder when they exist."""
     mounts = []
@@ -2714,7 +2725,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-python_backend",
-                "rocm10.2.0_r26.11_ubuntu2604",
+                rocm_repo_tag(),
                 "python",
                 "https://github.com/AMD-Ecosystem",
             )
@@ -2724,7 +2735,7 @@ def backend_build(
         else:
             cmake_script.gitclone(
                 "triton-inference-server-pytorch_backend",
-                "rocm10.2.0_r26.11_ubuntu2604",
+                rocm_repo_tag(),
                 "pytorch",
                 "https://github.com/AMD-Ecosystem",
             )
@@ -3931,9 +3942,9 @@ if __name__ == "__main__":
             FLAGS.github_organization = "https://github.com/AMD-Ecosystem"
         components = {
             "common": default_repo_tag,
-            "core": "rocm10.2.0_r26.11_ubuntu2604",
-            "backend": "rocm10.2.0_r26.11_ubuntu2604",
-            "thirdparty": "rocm10.2.0_r26.11_ubuntu2604",
+            "core": rocm_repo_tag(),
+            "backend": rocm_repo_tag(),
+            "thirdparty": rocm_repo_tag(),
         }
         local_mounts = rocm_local_src_bind_mounts()
         if any(dest == "/mnt/core" for _, dest in local_mounts):
@@ -4087,7 +4098,7 @@ if __name__ == "__main__":
             if be == "vllm":
                 if FLAGS.enable_rocm:
                     github_organization = "https://github.com/AMD-Ecosystem"
-                    backends[be] = "rocm10.2.0_r26.11_ubuntu2604"
+                    backends[be] = rocm_repo_tag()
                 backend_clone(
                     be,
                     cmake_script,
