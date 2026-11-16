@@ -22,3 +22,9 @@ qa/L0_openai/openai
 tensorrtllm_models
 tensorrtllm_mistral_models/
 custom_tokenizer
+
+#migraphx cache for ci
+/ci/migraphx_cache
+
+# generated files
+gen.*

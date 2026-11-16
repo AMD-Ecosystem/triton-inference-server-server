@@ -1,5 +1,5 @@
 <!--
-# Copyright 2018-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright 2018-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -28,229 +28,239 @@
 [![License](https://img.shields.io/badge/License-BSD3-lightgrey.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 
-# Triton Inference Server
+# Triton Inference Server - ROCm Edition
 
-Triton Inference Server is an open source inference serving software that
-streamlines AI inferencing. Triton enables teams to deploy any AI model from
-multiple deep learning and machine learning frameworks, including TensorRT,
-PyTorch, ONNX, OpenVINO, Python, RAPIDS FIL, and more. Triton
-Inference Server supports inference across cloud, data center, edge and embedded
-devices on NVIDIA GPUs, x86 and ARM CPU, or AWS Inferentia. Triton Inference
-Server delivers optimized performance for many query types, including real time,
-batched, ensembles and audio/video streaming. Triton inference Server is part of
-[NVIDIA AI Enterprise](https://www.nvidia.com/en-us/data-center/products/ai-enterprise/),
-a software platform that accelerates the data science pipeline and streamlines
-the development and deployment of production AI.
+----
 
-Major features include:
+## This branch (`rocm10.1-plugin-ep-remap-pt-tf-r25.12`)
 
-- [Supports multiple deep learning
-  frameworks](https://github.com/triton-inference-server/backend#where-can-i-find-all-the-backends-that-are-available-for-triton)
-- [Supports multiple machine learning
-  frameworks](https://github.com/triton-inference-server/fil_backend)
-- [Concurrent model
-  execution](docs/user_guide/architecture.md#concurrent-model-execution)
-- [Dynamic batching](docs/user_guide/batcher.md#dynamic-batcher)
-- [Sequence batching](docs/user_guide/batcher.md#sequence-batcher) and
-  [implicit state management](docs/user_guide/architecture.md#implicit-state-management)
-  for stateful models
-- Provides [Backend API](https://github.com/triton-inference-server/backend) that
-  allows adding custom backends and pre/post processing operations
-- Supports writing custom backends in python, a.k.a.
-  [Python-based backends.](https://github.com/triton-inference-server/backend/blob/r26.10/docs/python_based_backends.md#python-based-backends)
-- Model pipelines using
-  [Ensembling](docs/user_guide/ensemble_models.md#ensemble-models) or [Business
-  Logic Scripting
-  (BLS)](https://github.com/triton-inference-server/python_backend#business-logic-scripting)
-- [HTTP/REST and GRPC inference
-  protocols](docs/customization_guide/inference_protocols.md) based on the community
-  developed [KServe
-  protocol](https://github.com/kserve/kserve/tree/master/docs/predict-api/v2)
-- A [C API](docs/customization_guide/inprocess_c_api.md) and
-  [Java API](docs/customization_guide/inprocess_java_api.md)
-  allow Triton to link directly into your application for edge and other in-process use cases
-- [Metrics](docs/user_guide/metrics.md) indicating GPU utilization, server
-  throughput, server latency, and more
+This checkout is **not** the stock ROCm 7.2.3 README flow. It is the
+AMD-Ecosystem ROCm 10.1 branch with:
 
-**New to Triton Inference Server?** Make use of
-[these tutorials](https://github.com/triton-inference-server/tutorials)
-to begin your Triton journey!
+- Debian 12 + **ROCm 10.1.0** (ROCm Core SDK) as the default container OS
+- MIGraphX **plugin EP output-name remap** as the default ONNX Runtime EP
+- **PyTorch** and **TensorFlow** backends enabled for that 10.1 path
 
-Join the [Triton and TensorRT community](https://www.nvidia.com/en-us/deep-learning-ai/triton-tensorrt-newsletter/) and
-stay current on the latest product updates, bug fixes, content, best practices,
-and more.  Need enterprise support?  NVIDIA global support is available for Triton
-Inference Server with the
-[NVIDIA AI Enterprise software suite](https://www.nvidia.com/en-us/data-center/products/ai-enterprise/).
-
-## Serve a Model in 3 Easy Steps
+Clone this tree, not `ROCm/triton-inference-server-server` @ `rocm7.2.3_r25.12`:
 
 ```bash
-# Step 1: Create the example model repository
-git clone -b r26.10 https://github.com/triton-inference-server/server.git
-cd server/docs/examples
-./fetch_models.sh
-
-# Step 2: Launch triton from the NGC Triton container
-docker run --gpus=1 --rm --net=host -v ${PWD}/model_repository:/models nvcr.io/nvidia/tritonserver:26.10-py3 tritonserver --model-repository=/models --model-control-mode explicit --load-model densenet_onnx
-
-# Step 3: Sending an Inference Request
-# In a separate console, launch the image_client example from the NGC Triton SDK container
-docker run -it --rm --net=host nvcr.io/nvidia/tritonserver:26.10-py3-sdk /workspace/install/bin/image_client -m densenet_onnx -c 3 -s INCEPTION /workspace/images/mug.jpg
-
-# Inference should return the following
-Image '/workspace/images/mug.jpg':
-    15.346230 (504) = COFFEE MUG
-    13.224326 (968) = CUP
-    10.422965 (505) = COFFEEPOT
+git clone -b rocm10.1-plugin-ep-remap-pt-tf-r25.12 \
+  https://github.com/AMD-Ecosystem/triton-inference-server-server.git
+cd triton-inference-server-server
 ```
-Please read the [QuickStart](docs/getting_started/quickstart.md) guide for additional information
-regarding this example. The quickstart guide also contains an example of how to launch Triton on [CPU-only systems](docs/getting_started/quickstart.md#run-on-cpu-only-system). New to Triton and wondering where to get started? Watch the [Getting Started video](https://youtu.be/NQDtfSi5QF4).
 
-## Examples and Tutorials
+The Ubuntu 24.04 / ROCm 7.2.3 instructions later in this file are leftover from
+the upstream README. They still work from the scripts in-tree, but they are
+**not** what `build.py` uses by default on Debian.
 
-Check out [NVIDIA LaunchPad](https://www.nvidia.com/en-us/data-center/products/ai-enterprise-suite/trial/)
-for free access to a set of hands-on labs with Triton Inference Server hosted on
-NVIDIA infrastructure.
+## ROCm Support
 
-Specific end-to-end examples for popular models, such as ResNet, BERT, and DLRM
-are located in the
-[NVIDIA Deep Learning Examples](https://github.com/NVIDIA/DeepLearningExamples)
-page on GitHub. The
-[NVIDIA Developer Zone](https://developer.nvidia.com/nvidia-triton-inference-server)
-contains additional documentation, presentations, and examples.
+This repository contains ROCm-enabled builds of Triton Inference Server for AMD GPUs. The following backends are available or in development:
 
-## Documentation
+- **ONNX Runtime Backend** - Done
+- **Python Backend** - Done
+- **vLLM Backend** - Done (ROCm 7.2.3 path; not the default 10.1 Debian image)
+- **PyTorch Backend**  - Done
+- **Tensorflow Backend** - Done
 
-### Build and Deploy
+### ROCm 10.1 pins used by this branch
 
-The recommended way to build and use Triton Inference Server is with Docker
-images.
+`build.py --enable-rocm --linux-distro=debian` currently uses:
 
-- [Install Triton Inference Server with Docker containers](docs/customization_guide/build.md#building-with-docker) (*Recommended*)
-- [Install Triton Inference Server without Docker containers](docs/customization_guide/build.md#building-without-docker)
-- [Build a custom Triton Inference Server Docker container](docs/customization_guide/compose.md)
-- [Build Triton Inference Server from source](docs/customization_guide/build.md#building-on-unsupported-platforms)
-- Examples for deploying Triton Inference Server with Kubernetes and Helm on [GCP](deploy/gcp/README.md),
-  [AWS](deploy/aws/README.md), and [NVIDIA FleetCommand](deploy/fleetcommand/README.md)
-- [Secure Deployment Considerations](docs/customization_guide/deploy.md)
+| Component | Repository | Branch / tag / image |
+|-----------|------------|----------------------|
+| Server (this repo) | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server) | `rocm10.1-plugin-ep-remap-pt-tf-r25.12` |
+| Core | [ROCm/triton-inference-server-core](https://github.com/ROCm/triton-inference-server-core) | `rocm7.2_r25.12` |
+| Backend | [ROCm/triton-inference-server-backend](https://github.com/ROCm/triton-inference-server-backend) | `rocm7.2_r25.12` |
+| Third Party | [ROCm/triton-inference-server-third_party](https://github.com/ROCm/triton-inference-server-third_party) | `rocm7.2_r25.12` |
+| ONNX Runtime Backend | [TedThemistokleous/onnxruntime_backend](https://github.com/TedThemistokleous/onnxruntime_backend) | `pre_verify_10.1` |
+| MIGraphX plugin EP | [ffloresy/onnxruntime-ep-amdgpu](https://github.com/ffloresy/onnxruntime-ep-amdgpu) | `fix-output-name-remap` |
+| MIGraphX (source) | [ROCm/AMDMIGraphX](https://github.com/ROCm/AMDMIGraphX) | `remove_output_concats2` |
+| Python Backend | [ROCm/triton-inference-server-python_backend](https://github.com/ROCm/triton-inference-server-python_backend) | `rocm7.2_r25.12` |
+| Pytorch Backend | [ROCm/triton-inference-server-pytorch_backend](https://github.com/ROCm/triton-inference-server-pytorch_backend) | `rocm7.2_r25.12` |
+| Tensorflow Backend | [ROCm/triton-inference-server-tensorflow_backend](https://github.com/ROCm/triton-inference-server-tensorflow_backend) | `rocm7.14-prev_r24.03` |
+| TensorFlow ROCm image | local Docker image | `localhost/debian12_rocm10.1.0_tensorflow` |
 
-### Using Triton
+Override the plugin EP with `--migraphx-ep-repo` / `--migraphx-ep-branch` if you
+need the upstream EP instead of the name-remap fork.
 
-#### Preparing Models for Triton Inference Server
+## Build Triton Inference Server (ROCm 10.1, Debian 12) — this branch
 
-The first step in using Triton to serve your models is to place one or
-more models into a [model repository](docs/user_guide/model_repository.md). Depending on
-the type of the model and on what Triton capabilities you want to enable for
-the model, you may need to create a [model
-configuration](docs/user_guide/model_configuration.md) for the model.
+#### Prerequisites
 
-- [Add custom operations to Triton if needed by your model](docs/user_guide/custom_operations.md)
-- Enable model pipelining with [Model Ensemble](docs/user_guide/ensemble_models.md#ensemble-models)
-  and [Business Logic Scripting (BLS)](https://github.com/triton-inference-server/python_backend#business-logic-scripting)
-- Optimize your models setting [scheduling and batching](docs/user_guide/architecture.md#models-and-schedulers)
-  parameters and [model instances](docs/user_guide/model_configuration.md#instance-groups).
-- Use the [Model Analyzer tool](https://github.com/triton-inference-server/model_analyzer)
-  to help optimize your model configuration with profiling
-- Learn how to [explicitly manage what models are available by loading and
-  unloading models](docs/user_guide/model_management.md)
+- Docker installed and running
+- AMD GPU with ROCm support (images currently install **gfx942** packages: MI300X / MI325X / MI300A)
+- Host ROCm 10.1-compatible driver
 
-#### Configure and Use Triton Inference Server
+ROCm 10.1 uses the **ROCm Core SDK** repo (`stable.repo.amd.com/rocm/core`), not
+the legacy ROCm 7.x `repo.amd.com` layout.
 
-- Read the [Quick Start Guide](docs/getting_started/quickstart.md) to run Triton Inference
-  Server on both GPU and CPU
-- Triton supports multiple execution engines, called
-  [backends](https://github.com/triton-inference-server/backend#where-can-i-find-all-the-backends-that-are-available-for-triton), including
-  [TensorRT](https://github.com/triton-inference-server/tensorrt_backend),
-  [PyTorch](https://github.com/triton-inference-server/pytorch_backend),
-  [ONNX](https://github.com/triton-inference-server/onnxruntime_backend),
-  [OpenVINO](https://github.com/triton-inference-server/openvino_backend),
-  [Python](https://github.com/triton-inference-server/python_backend), and more
-- Not all the above backends are supported on every platform supported by Triton.
-  Look at the
-  [Backend-Platform Support Matrix](https://github.com/triton-inference-server/backend/blob/r26.10/docs/backend_platform_support_matrix.md)
-  to learn which backends are supported on your target platform.
-- Learn how to [optimize performance](docs/user_guide/optimization.md) using the
-  [Performance Analyzer](https://github.com/triton-inference-server/perf_analyzer/blob/r26.10/README.md)
-  and
-  [Model Analyzer](https://github.com/triton-inference-server/model_analyzer)
-- Learn how to [manage loading and unloading models](docs/user_guide/model_management.md) in
-  Triton
-- Send requests directly to Triton with the [HTTP/REST JSON-based
-  or gRPC protocols](docs/customization_guide/inference_protocols.md#httprest-and-grpc-protocols)
+### Step 1 — Debian 12 + ROCm 10.1 base image
 
-#### Client Support and Examples
+```bash
+bash scripts/build_debian12_rocm_101_base.sh
+```
 
-A Triton *client* application sends inference and other requests to Triton. The
-[Python and C++ client libraries](https://github.com/triton-inference-server/client)
-provide APIs to simplify this communication.
+This builds `localhost/debian12_rocm10.1.0`, which `build.py --linux-distro=debian` uses as the base.
 
-- Review client examples for [C++](https://github.com/triton-inference-server/client/blob/r26.10/src/c%2B%2B/examples),
-  [Python](https://github.com/triton-inference-server/client/blob/r26.10/src/python/examples),
-  and [Java](https://github.com/triton-inference-server/client/blob/r26.10/src/java/src/main/java/triton/client/examples)
-- Configure [HTTP](https://github.com/triton-inference-server/client#http-options)
-  and [gRPC](https://github.com/triton-inference-server/client#grpc-options)
-  client options
-- Send input data (e.g. a jpeg image) directly to Triton in the [body of an HTTP
-  request without any additional metadata](https://github.com/triton-inference-server/server/blob/r26.10/docs/protocol/extension_binary_data.md#raw-binary-request)
+### Step 2 — TensorFlow ROCm 10.1 image (required for `--backend=tensorflow`)
 
-### Extend Triton
+```bash
+./scripts/build_debian12_rocm_101_tensorflow.sh
+```
 
-[Triton Inference Server's architecture](docs/user_guide/architecture.md) is specifically
-designed for modularity and flexibility
+This builds `localhost/debian12_rocm10.1.0_tensorflow`. `build.py` passes that
+name to the TensorFlow backend as `TRITON_TENSORFLOW_DOCKER_IMAGE`.
 
-- [Customize Triton Inference Server container](docs/customization_guide/compose.md) for your use case
-- [Create custom backends](https://github.com/triton-inference-server/backend)
-  in either [C/C++](https://github.com/triton-inference-server/backend/blob/r26.10/README.md#triton-backend-api)
-  or [Python](https://github.com/triton-inference-server/python_backend)
-- Create [decoupled backends and models](docs/user_guide/decoupled_models.md) that can send
-  multiple responses for a request or not send any responses for a request
-- Use a [Triton repository agent](docs/customization_guide/repository_agents.md) to add functionality
-  that operates when a model is loaded and unloaded, such as authentication,
-  decryption, or conversion
-- Deploy Triton on [Jetson and JetPack](docs/user_guide/jetson.md)
-- [Use Triton on AWS
-   Inferentia](https://github.com/triton-inference-server/python_backend/tree/r26.10/inferentia)
+What the image does:
 
-### Additional Documentation
+- Clones [ROCm/tensorflow-upstream](https://github.com/ROCm/tensorflow-upstream) @ `develop-upstream`
+- Applies `patches/tensorflow_tritonapi_build_develop-upstream_adjusted.patch`
+- Builds the `tensorflow_rocm` wheel with Bazel (hermetic Python 3.12) and checks that TF can see a GPU
 
-- [FAQ](docs/user_guide/faq.md)
-- [User Guide](docs/README.md#user-guide)
-- [Customization Guide](docs/README.md#customization-guide)
-- [Release Notes](https://docs.nvidia.com/deeplearning/triton-inference-server/release-notes/index.html)
-- [GPU, Driver, and CUDA Support
-Matrix](https://docs.nvidia.com/deeplearning/dgx/support-matrix/index.html)
+The patch injects Triton’s TensorFlow C API (`tensorflow_backend_tf`) into that
+TF tree. GPU-vs-CPU tensor detection uses TensorFlow’s `GetMemoryType()` API
+instead of HIP (`hipPointerGetAttributes`), because HIP headers are not visible
+in this hermetic Bazel sandbox.
 
-## Contributing
+Skip the long TF compile during `docker build` if you only need the image shell:
 
-Contributions to Triton Inference Server are more than welcome. To
-contribute please review the [contribution
-guidelines](CONTRIBUTING.md). If you have a backend, client,
-example or similar contribution that is not modifying the core of
-Triton, then you should file a PR in the [contrib
-repo](https://github.com/triton-inference-server/contrib).
+```bash
+RUN_TF_REPRO_DURING_BUILD=0 ./scripts/build_debian12_rocm_101_tensorflow.sh
+```
 
-## Reporting problems, asking questions
+**GPU target note:** the TensorFlow Dockerfile currently sets
+`TF_ROCM_AMDGPU_TARGETS=gfx942` for a faster validation build. Restore the full
+target list in `Dockerfile.debian12_rocm10.1.0_tensorflow` if you need other
+architectures.
 
-We appreciate any feedback, questions or bug reporting regarding this project.
-When posting [issues in GitHub](https://github.com/triton-inference-server/server/issues),
-follow the process outlined in the [Stack Overflow document](https://stackoverflow.com/help/mcve).
-Ensure posted examples are:
-- minimal – use as little code as possible that still produces the
-  same problem
-- complete – provide all parts needed to reproduce the problem. Check
-  if you can strip external dependencies and still show the problem. The
-  less time we spend on reproducing problems the more time we have to
-  fix it
-- verifiable – test the code you're about to provide to make sure it
-  reproduces the problem. Remove all other problems that are not
-  related to your request/question.
+### Step 3 — build `tritonserver`
 
-For issues, please use the provided bug report and feature request templates.
+```bash
+python3 build.py \
+  --no-container-pull \
+  --enable-logging \
+  --enable-stats \
+  --enable-tracing \
+  --enable-rocm \
+  --enable-metrics \
+  --verbose \
+  --endpoint=grpc \
+  --endpoint=http \
+  --backend=onnxruntime \
+  --backend=python \
+  --backend=pytorch \
+  --backend=tensorflow \
+  --linux-distro=debian
+```
 
-For questions, we recommend posting in our community
-[GitHub Discussions.](https://github.com/triton-inference-server/server/discussions)
+**Build options explained:**
+- `--enable-rocm`: Enable ROCm support
+- `--linux-distro=debian`: Use `localhost/debian12_rocm10.1.0`
+- `--backend=onnxruntime`: ONNX Runtime + MIGraphX plugin EP (`fix-output-name-remap` by default)
+- `--backend=python`: Python backend
+- `--backend=pytorch`: PyTorch backend
+- `--backend=tensorflow`: TensorFlow backend (needs Step 2)
 
-## For more information
+Do not add `--backend=vllm` on this 10.1 path unless you have also built a
+matching vLLM base image. The in-tree vLLM base scripts are still ROCm 7.2.
 
-Please refer to the [NVIDIA Developer Triton page](https://developer.nvidia.com/nvidia-triton-inference-server)
-for more information.
+## Run Triton Server
+
+Start the Triton Server container with your model repository. The `ORT_MIGRAPHX_*`
+and `MIGRAPHX_*` environment variables apply to **ONNX Runtime + MIGraphX**
+models only (not PyTorch or TensorFlow).
+
+```bash
+docker run \
+  --name tritonserver_container \
+  --device=/dev/kfd \
+  --device=/dev/dri \
+  --group-add video \
+  --ipc=host \
+  --net=host \
+  -it \
+  -e ROCR_VISIBLE_DEVICES=0 \
+  -e MIGRAPHX_MLIR_USE_SPECIFIC_OPS="attention,convolution,dot,fused" \
+  -e ORT_MIGRAPHX_MODEL_CACHE_PATH=/models/cache/ \
+  -e ORT_MIGRAPHX_HIP_GRAPH_ENABLE=1 \
+  -e ORT_MIGRAPHX_COALESCE_IO=1 \
+  -e ORT_MIGRAPHX_COMPILE_BATCHES="1,2,4,8,16,32,64,128" \
+  -v /path/to/your/model_repository/on/host:/models \
+  -v /path/to/your/migraphx_cache_save_dir/on/host:/models/cache \
+  tritonserver \
+  tritonserver --model-repository=/models --exit-on-error=false
+```
+
+**Important parameters:**
+- `--device=/dev/kfd --device=/dev/dri`: Grant access to AMD GPU devices
+- `--group-add video --ipc=host --net=host`: GPU device group, shared memory, and host networking
+- `-v /path/to/your/model_repository/on/host:/models`: Mount your model repository. **Please make sure you only have model checkpoints and model config file under that host path.**
+- `-v /path/to/your/migraphx_cache_save_dir/on/host:/models/cache`: Mount the compiled-model (`.mxr`) cache. Keep this directory **outside** the model repository tree if you use `--model-control-mode=explicit`, so Triton does not treat the cache as a model.
+
+`ORT_MIGRAPHX_COALESCE_IO=1` requires `ORT_MIGRAPHX_HIP_GRAPH_ENABLE=1`; otherwise
+it is ignored. If you change `MIGRAPHX_MLIR_USE_SPECIFIC_OPS`, delete the `*.mxr`
+files in the cache directory or the old compiled graphs are reused.
+
+### Environment variable references
+
+The last four `ORT_MIGRAPHX_*` names are defined by the **MIGraphX plugin EP**
+(`onnxruntime-ep-amdgpu`), which this branch builds by default. The public
+[onnxruntime.ai MIGraphX page](https://onnxruntime.ai/docs/execution-providers/MIGraphX-ExecutionProvider.html)
+documents `ORT_MIGRAPHX_MODEL_CACHE_PATH` but not `HIP_GRAPH_ENABLE`,
+`COALESCE_IO`, or `COMPILE_BATCHES`.
+
+| Variable | What it does | Reference |
+|----------|--------------|-----------|
+| `ROCR_VISIBLE_DEVICES` | ROCm runtime GPU isolation: only the listed GPU index/UUID is visible. On Linux this is preferred over `HIP_VISIBLE_DEVICES`. | [ROCm environment variables](https://rocm.docs.amd.com/en/latest/reference/environment-variables/index.html), [GPU isolation techniques](https://rocm.docs.amd.com/en/latest/reference/system-optimization/gpu-isolation.html), [ROCR-Runtime env vars](https://rocm.docs.amd.com/projects/ROCR-Runtime/en/develop/api-reference/environment_variables.html) |
+| `MIGRAPHX_MLIR_USE_SPECIFIC_OPS` | Forces listed ops through rocMLIR (`attention,convolution,dot,fused`). No spaces in the list. Prefix with `~` to disable an op. | [MIGraphX environment variables](https://rocm.docs.amd.com/projects/AMDMIGraphX/en/latest/reference/MIGraphX-dev-env-vars.html), [Tune model performance](https://rocm.docs.amd.com/projects/AMDMIGraphX/en/latest/how-to/model-performance-tuning.html) |
+| `ORT_MIGRAPHX_MODEL_CACHE_PATH` | Directory for compiled MIGraphX `.mxr` files so later starts skip recompilation. | [Plugin EP env-var table](https://github.com/onnxruntime/onnxruntime-ep-amdgpu/blob/main/docs/MIGraphX-ExecutionProvider.md#environment-variables), [onnxruntime.ai MIGraphX EP](https://onnxruntime.ai/docs/execution-providers/MIGraphX-ExecutionProvider.html), [AMD blog — Triton + ONNX](https://rocm.blogs.amd.com/software-tools-optimization/triton-server-onnx/README.html) |
+| `ORT_MIGRAPHX_HIP_GRAPH_ENABLE` | Enable HIP graph capture/replay for the compiled MIGraphX model (`1`/`0`). Plugin EP, added in ROCm 7.2. | [Plugin EP env-var table](https://github.com/onnxruntime/onnxruntime-ep-amdgpu/blob/main/docs/MIGraphX-ExecutionProvider.md#environment-variables), [source: `mgx_ep.h`](https://github.com/onnxruntime/onnxruntime-ep-amdgpu/blob/main/src/migraphx/mgx_ep.h) |
+| `ORT_MIGRAPHX_COALESCE_IO` | Pack all host inputs into one H2D copy on the pinned path. Requires `ORT_MIGRAPHX_HIP_GRAPH_ENABLE=1`. Plugin EP, added in ROCm 7.14. | [Plugin EP env-var table](https://github.com/onnxruntime/onnxruntime-ep-amdgpu/blob/main/docs/MIGraphX-ExecutionProvider.md#environment-variables), [source: `mgx_ep.h`](https://github.com/onnxruntime/onnxruntime-ep-amdgpu/blob/main/src/migraphx/mgx_ep.h) |
+| `ORT_MIGRAPHX_COMPILE_BATCHES` | Comma-separated batch sizes to pre-compile (e.g. `"1,2,4,8,16,32,64,128"`). Fewer sizes means a faster first compile. Plugin EP, added in ROCm 7.2. | [Plugin EP env-var table](https://github.com/onnxruntime/onnxruntime-ep-amdgpu/blob/main/docs/MIGraphX-ExecutionProvider.md#environment-variables), [source: `mgx_ep.h`](https://github.com/onnxruntime/onnxruntime-ep-amdgpu/blob/main/src/migraphx/mgx_ep.h), [AMD blog `docker run` example](https://rocm.blogs.amd.com/software-tools-optimization/triton-server-onnx/README.html) |
+
+#### Testing with Performance Analyzer
+
+Use the Triton SDK container to run performance tests. By default, test requests are sent to localhost, so run the test client container on the same machine.
+
+```bash
+perf_analyzer -m <model_name>  --input-data=<your input data file>
+```
+
+---
+
+## Upstream leftover: Ubuntu 24.04 / Debian 12 with ROCm 7.2.3
+
+These scripts are still in the tree, but they are **not** this branch’s default.
+They clone/build the older ROCm 7.2.3 layout (`localhost/ubuntu24.04_rocm7.2.3`
+or `localhost/debian12_rocm7.2.3`).
+
+### On Ubuntu 24.04 (ROCm 7.2.3)
+
+```bash
+bash scripts/build_ubuntu24.04_rocm_723_base.sh
+python3 build.py \
+  --no-container-pull \
+  --enable-logging --enable-stats --enable-tracing \
+  --enable-rocm --enable-metrics --verbose \
+  --endpoint=grpc --endpoint=http \
+  --backend=onnxruntime --backend=python \
+  --backend=vllm --backend=pytorch --backend=tensorflow \
+  --linux-distro=ubuntu
+```
+
+### On Debian 12 (ROCm 7.2.3)
+
+```bash
+bash scripts/build_debian12_rocm_723_base.sh
+# optional vLLM base:
+# bash scripts/build_debian12_rocm_72_vllm_base.sh
+python3 build.py \
+  --no-container-pull \
+  --enable-logging --enable-stats --enable-tracing \
+  --enable-rocm --enable-metrics --verbose \
+  --endpoint=grpc --endpoint=http \
+  --backend=onnxruntime --backend=python \
+  --backend=vllm --backend=tensorflow \
+  --linux-distro=debian
+```

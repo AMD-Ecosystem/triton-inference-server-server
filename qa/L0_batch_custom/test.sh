@@ -51,12 +51,6 @@ SERVER=/opt/tritonserver/bin/tritonserver
 SERVER_ARGS="--model-repository=models --log-verbose 1"
 SERVER_LOG_BASE="./inference_server.log"
 TEST_RESULT_FILE='test_results.txt'
-TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="http://github.com/triton-inference-server"}
-TRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG:="main"}
-TRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG:="main"}
-TRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG:="main"}
-
-
 source ../common/util.sh
 RET=0
 
@@ -72,7 +66,7 @@ apt update -q=2 \
 cmake --version
 
 # Set up repository
-rm -fr *.log* ./backend
+rm -fr *.log* ./backend ./triton-inference-server-backend
 rm -fr models && mkdir models
 cp -r $DATADIR/$MODEL_NAME models
 
@@ -80,10 +74,14 @@ CONFIG_PATH="models/${MODEL_NAME}/config.pbtxt"
 echo "dynamic_batching { max_queue_delay_microseconds: 10000}" >> ${CONFIG_PATH}
 echo "instance_group [ { kind: KIND_GPU count: 2 }]" >> ${CONFIG_PATH}
 echo "parameters { key: \"MAX_BATCH_VOLUME_BYTES\" value: {string_value: \"96\"}}" >> ${CONFIG_PATH}
+if $ROCM_ENABLED; then
+    echo 'optimization { execution_accelerators { gpu_execution_accelerator : [ { name : "migraphx" }] } }' >> ${CONFIG_PATH}
+    echo 'model_warmup [{ name: "warmup" batch_size: 1 inputs { key: "INPUT0" value: { data_type: TYPE_FP16 dims: [4, 4] zero_data: true } } }]' >> ${CONFIG_PATH}
+fi
 
 # Create custom batching libraries
 git clone --single-branch --depth=1 -b $TRITON_BACKEND_REPO_TAG \
-    ${TRITON_REPO_ORGANIZATION}/backend.git
+    $(triton_repo_url backend).git backend
 
 (cd backend/examples/batching_strategies/volume_batching &&
  mkdir build &&
@@ -93,7 +91,8 @@ git clone --single-branch --depth=1 -b $TRITON_BACKEND_REPO_TAG \
        -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION} \
        -DTRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG} \
        -DTRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG} \
-       -DTRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG} .. &&
+       -DTRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG} \
+       ${TRITON_ROCM_CMAKE_ARG} .. &&
  make -j4 install)
 
  (cd backend/examples/batching_strategies/single_batching &&
@@ -104,7 +103,8 @@ git clone --single-branch --depth=1 -b $TRITON_BACKEND_REPO_TAG \
        -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION} \
        -DTRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG} \
        -DTRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG} \
-       -DTRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG} .. &&
+       -DTRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG} \
+       ${TRITON_ROCM_CMAKE_ARG} .. &&
  make -j4 install)
 
 cp -r backend/examples/batching_strategies/volume_batching/build/libtriton_volumebatching.so models
@@ -117,8 +117,17 @@ MODEL_DIR="models/$MODEL_NAME"
 VERSION_DIR="$MODEL_DIR/1/"
 
 test_types=('single_batching_backend' 'backend_directory' 'model_directory' 'version_directory' 'model_config')
-test_setups=("cp models/libtriton_singlebatching.so ${BACKEND_DIR}/batchstrategy.so && sed -i \"s/(4, 5, 6))/(12))/\" ${BATCH_CUSTOM_TEST}"
-    "cp models/libtriton_volumebatching.so ${BACKEND_DIR}/batchstrategy.so && sed -i \"s/(12))/(4, 5, 6))/\" ${BATCH_CUSTOM_TEST}"
+if $ROCM_ENABLED; then
+    # model_warmup adds 1 request per instance (2 instances = +2 to all counts)
+    sed -i "s/None, 12, 12, (4, 5, 6)/None, 14, 14, (6, 7, 8)/" ${BATCH_CUSTOM_TEST}
+    VOLUME_EXEC="6, 7, 8"
+    SINGLE_EXEC="14"
+else
+    VOLUME_EXEC="4, 5, 6"
+    SINGLE_EXEC="12"
+fi
+test_setups=("cp models/libtriton_singlebatching.so ${BACKEND_DIR}/batchstrategy.so && sed -i \"s/(${VOLUME_EXEC}))/(${SINGLE_EXEC}))/\" ${BATCH_CUSTOM_TEST}"
+    "cp models/libtriton_volumebatching.so ${BACKEND_DIR}/batchstrategy.so && sed -i \"s/(${SINGLE_EXEC}))/(${VOLUME_EXEC}))/\" ${BATCH_CUSTOM_TEST}"
     "mv ${BACKEND_DIR}/batchstrategy.so ${MODEL_DIR} && cp models/libtriton_singlebatching.so ${BACKEND_DIR}"
     "mv ${MODEL_DIR}/batchstrategy.so ${VERSION_DIR}/batchstrategy.so"
     "mv ${VERSION_DIR}/batchstrategy.so models/${MODEL_NAME}/libtriton_volumebatching.so && echo \"parameters: {key: \\\"TRITON_BATCH_STRATEGY_PATH\\\", value: {string_value: \\\"${MODEL_DIR}/libtriton_volumebatching.so\\\"}}\" >> ${CONFIG_PATH}")
@@ -159,7 +168,7 @@ for i in "${!test_setups[@]}"; do
     fi
 
     kill $SERVER_PID
-    wait $SERVER_PID
+    wait $SERVER_PID 2>/dev/null || true
 done
 
 # Test ModelBatchInitialize failure
@@ -175,7 +184,8 @@ sed -i "s/${OLD_STRING}/${NEW_STRING}/g" ${FILE_PATH}
        -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION} \
        -DTRITON_BACKEND_REPO_TAG=${TRITON_BACKEND_REPO_TAG} \
        -DTRITON_CORE_REPO_TAG=${TRITON_CORE_REPO_TAG} \
-       -DTRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG} .. &&
+       -DTRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG} \
+       ${TRITON_ROCM_CMAKE_ARG} .. &&
  make -j4 install)
 
 cp -r backend/examples/batching_strategies/volume_batching/build/libtriton_volumebatching.so models/${MODEL_NAME}/libtriton_volumebatching.so

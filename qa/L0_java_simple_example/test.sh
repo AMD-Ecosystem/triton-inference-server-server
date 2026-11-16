@@ -37,11 +37,11 @@ if [ -z "$REPO_VERSION" ]; then
     exit 1
 fi
 
-TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:="https://github.com/triton-inference-server"}
+source ../common/util.sh
 JAVACPP_BRANCH=${JAVACPP_BRANCH:="https://github.com/bytedeco/javacpp-presets.git"}
 JAVACPP_BRANCH_TAG=${JAVACPP_BRANCH_TAG:="master"}
 set -e
-git clone --single-branch --depth=1 -b ${TRITON_CLIENT_REPO_TAG} ${TRITON_REPO_ORGANIZATION}/client.git
+git clone --single-branch --depth=1 -b ${TRITON_CLIENT_REPO_TAG} $(triton_repo_url client).git
 source client/src/java-api-bindings/scripts/install_dependencies_and_build.sh -b $PWD --javacpp-branch ${JAVACPP_BRANCH} --javacpp-tag ${JAVACPP_BRANCH_TAG} --keep-build-dependencies
 cd ..
 
@@ -51,8 +51,6 @@ MODEL_REPO=`pwd`/models
 
 SAMPLES_REPO=`pwd`/javacpp-presets/tritonserver/samples/simple
 BASE_COMMAND="mvn clean compile -f $SAMPLES_REPO exec:java -Djavacpp.platform=linux-x86_64"
-source ../common/util.sh
-
 
 rm -f *.log
 RET=0

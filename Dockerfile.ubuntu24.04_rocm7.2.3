@@ -1,0 +1,69 @@
+#
+# Ubuntu 24.04 + ROCm 7.2.3 + Python 3.12 Base Image
+#
+
+FROM rocm/dev-ubuntu-24.04:7.2.3-complete
+
+# Prevent apt-get from prompting for input
+ENV DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /workspace
+
+# Install basic dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        locales \
+        ca-certificates \
+        wget \
+        gnupg2 \
+        curl \
+        software-properties-common \
+        build-essential \
+        git \
+        pkg-config && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+
+# Allow pip to install into system Python (PEP 668 / Ubuntu 24.04 externally-managed)
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
+# Install libevent (needed by Triton for HTTP/gRPC endpoints)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libevent-2.1-7 \
+        libevent-core-2.1-7 \
+        libevent-pthreads-2.1-7 \
+        libevent-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install common runtime dependencies used by Triton
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libb64-0d \
+        libcurl4-openssl-dev \
+        libre2-10 \
+        libre2-dev \
+        libnuma-dev \
+        libnuma1 \
+        libgoogle-perftools-dev \
+        libjemalloc-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# Install cmake
+RUN apt update -q=2 && apt install -y wget && \
+    wget -q https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-linux-x86_64.tar.gz && \
+    tar -zxf cmake-3.31.8-linux-x86_64.tar.gz -C /opt && \
+    rm cmake-3.31.8-linux-x86_64.tar.gz && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/cmake /usr/local/bin/cmake && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/ctest /usr/local/bin/ctest && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/cpack /usr/local/bin/cpack && \
+    cmake --version 
+
+# Set ROCm environment variables
+ENV ROCM_PATH=/opt/rocm
+ENV HIP_PATH=/opt/rocm
+ENV PATH=/opt/rocm/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH}
