@@ -3260,7 +3260,7 @@ if __name__ == "__main__":
         "--rocm-arch",
         type=str,
         required=False,
-        default="gfx942",
+        default=os.getenv("ROCM_GFX_ARCHS", "gfx942,gfx950"),
         help="Comma-separated AMD GPU target architecture(s) (e.g. 'gfx942' or "
         "'gfx942,gfx90a') to build ROCm backends for. Exported as the "
         "PYTORCH_ROCM_ARCH environment variable before configuring the "
