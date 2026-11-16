@@ -1499,14 +1499,16 @@ ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
             )
             if pytorch_requested:
                 if FLAGS.linux_distro == "debian":
-                    # Debian base image ships ROCm 10.0.0: use AMD's matching wheels
+                    # The Debian 12 ROCm 10.2 image has no published +rocm10.2
+                    # wheel. 2.14.0+rocm10.1.0 is the newest cp311 wheel on
+                    # whl-next (torchvision pairs as 0.29.0a0+rocm10.1.0).
                     df += """
 # Install PyTorch for ROCm (needed by pytorch backend build)
 RUN pip3 install --no-cache-dir wheel && \\
     pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[device-all]==2.13.0+rocm10.0.0" \\
-      "torchvision[device-all]==0.28.0+rocm10.0.0"
+      "torch[device-all]==2.14.0+rocm10.1.0" \\
+      "torchvision[device-all]==0.29.0a0+rocm10.1.0"
 """
                 else:
                     # Ubuntu base image ships ROCm 7.2.x: keep the previous wheels
@@ -1726,13 +1728,13 @@ ENV UCX_MEM_EVENTS no
     if "pytorch" in backends:
         if enable_rocm:
             if FLAGS.linux_distro == "debian":
-                # Debian base image ships ROCm 10.0.0: use AMD's matching wheel
+                # Same wheel as the build image. No +rocm10.2 torch is published.
                 df += """
 # Install PyTorch ROCm wheel in the production container for runtime libs
 RUN pip3 install --no-cache-dir wheel && \\
     pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[device-all]==2.13.0+rocm10.0.0"
+      "torch[device-all]==2.14.0+rocm10.1.0"
 """
             else:
                 # Ubuntu base image ships ROCm 7.2.x: keep the previous wheel
@@ -1934,8 +1936,9 @@ RUN apt-get update \\
 
     if "vllm" in backends and enable_rocm:
         if FLAGS.linux_distro == "debian":
-            # vLLM is built from scratch in the base image for Debian.
-            pass
+            # This Debian 12 base does not contain vLLM. The published ROCm 10
+            # wheel is cp312, so the vLLM card's base image is Python 3.12.
+            df += install_vllm("https://wheels.vllm.ai/rocm/nightly/rocm100")
         else:
             # vLLM engine is installed through a wheel for Ubuntu.
             df += install_vllm()
@@ -2244,23 +2247,42 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
         # build, because we want this code to work even if run within
         # Docker (i.e. docker-in-docker) and not just if run directly
         # from host.
+        image_tag = os.environ.get("TRITON_IMAGE_TAG", "").strip()
+        if image_tag:
+            builder_name = "tritonserver_builder_" + "".join(
+                ch if ch.isalnum() else "" for ch in image_tag
+            )
+        else:
+            builder_name = "tritonserver_builder"
+
         runargs = [
             "docker",
             "run",
             "-w",
             "/workspace/build",
             "--name",
-            "tritonserver_builder",
+            builder_name,
             "-e",
             "GIT_TERMINAL_PROMPT=0",  # avoid credential prompt for public FetchContent clones
         ]
 
-        # Optional: mount persistent build dir so third-party libs are reused
-        if getattr(FLAGS, "reuse_third_party_build", False) and target_platform() != "windows":
+        # Optional: mount persistent build dir so third-party libs are reused.
+        # TRITON_ROCM_COMPILE_TREE puts that tree on a large filesystem. The
+        # container's own /tmp cannot hold a ROCm third-party build.
+        compile_tree = os.environ.get("TRITON_ROCM_COMPILE_TREE", "").strip()
+        if compile_tree and target_platform() != "windows":
+            compile_tree = os.path.abspath(os.path.expanduser(compile_tree))
+            os.makedirs(compile_tree, exist_ok=True)
+            runargs += ["-v", "{}:/tmp/tritonbuild".format(compile_tree)]
+        elif getattr(FLAGS, "reuse_third_party_build", False) and target_platform() != "windows":
             tritonbuild_cache = os.path.abspath(
                 os.path.join(FLAGS.build_dir, "tritonbuild_cache")
             )
             runargs += ["-v", "{}:/tmp/tritonbuild".format(tritonbuild_cache)]
+
+        if FLAGS.enable_rocm and target_platform() != "windows":
+            for src, dest in rocm_local_src_bind_mounts():
+                runargs += ["-v", "{}:{}:ro".format(src, dest)]
 
         # Optional: bind-mount a local ONNX Runtime backend source tree so
         # --onnxruntime-backend-dir can build from uncommitted local changes
@@ -2348,9 +2370,12 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
         else:
             runargs += ["./cmake_build"]
 
-        # Remove existing tritonserver_builder container...
+        # Remove existing builder container. Match the name exactly so a
+        # parallel distro build's container is left alone.
         docker_script._file.write(
-            'if [ "$(docker ps -a | grep tritonserver_builder)" ]; then  docker rm -f tritonserver_builder; fi\n'
+            'if [ "$(docker ps -aq -f name=^{}$)" ]; then docker rm -f {}; fi\n'.format(
+                builder_name, builder_name
+            )
         )
 
         docker_script.cmd(runargs, check_exitcode=True)
@@ -2359,7 +2384,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             [
                 "docker",
                 "cp",
-                "tritonserver_builder:/tmp/tritonbuild/install",
+                "{}:/tmp/tritonbuild/install".format(builder_name),
                 FLAGS.build_dir,
             ],
             check_exitcode=True,
@@ -2368,7 +2393,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             [
                 "docker",
                 "cp",
-                "tritonserver_builder:/tmp/tritonbuild/ci",
+                "{}:/tmp/tritonbuild/ci".format(builder_name),
                 FLAGS.build_dir,
             ],
             check_exitcode=True,
@@ -2389,7 +2414,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
         finalargs += secret_build_args()
         finalargs += [
             "-t",
-            "tritonserver",
+            "tritonserver:{}".format(image_tag) if image_tag else "tritonserver",
             "-f",
             os.path.join(FLAGS.build_dir, "Dockerfile"),
             ".",
@@ -2409,7 +2434,7 @@ def create_docker_build_script(script_name, container_install_dir, container_ci_
             "docker",
             "build",
             "-t",
-            "tritonserver_cibase",
+            "tritonserver_cibase:{}".format(image_tag) if image_tag else "tritonserver_cibase",
             "-f",
             os.path.join(FLAGS.build_dir, "Dockerfile.cibase"),
             ".",
@@ -2546,17 +2571,47 @@ def tensorrtllm_postbuild(cmake_script, repo_install_dir, tensorrtllm_be_dir):
     )
 
 
-def install_vllm():
+def install_vllm(index="https://wheels.vllm.ai/rocm/nightly/rocm721"):
     """Return Dockerfile fragment to install vLLM for ROCm."""
-    df = """
+    df = f"""
 # Install vLLM pre-built wheel for ROCm
 RUN apt-get update && apt-get install -y --no-install-recommends libopenmpi-dev && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --no-cache-dir uv
 RUN uv pip install --system --no-cache --break-system-packages vllm --pre \\
-        --extra-index-url https://wheels.vllm.ai/rocm/nightly/rocm721 \\
+        --extra-index-url {index} \\
         --upgrade
 """
     return df
+
+
+def rocm_local_src_bind_mounts():
+    """Bind local ROCm 10.2 checkouts into the builder when they exist."""
+    mounts = []
+    home = os.path.expanduser("~/triton_work")
+    for name, dest in (
+        ("triton-inference-server-core", "/mnt/core"),
+        ("triton-inference-server-backend", "/mnt/backend"),
+        ("triton-inference-server-third_party", "/mnt/third_party"),
+        ("triton-inference-server-python_backend", "/mnt/python_backend"),
+        ("triton-inference-server-pytorch_backend", "/mnt/pytorch_backend"),
+        ("triton-inference-server-vllm_backend", "/mnt/vllm_backend"),
+        ("triton-inference-server-onnxruntime_backend", "/mnt/onnxruntime_backend"),
+    ):
+        src = os.path.join(home, name)
+        if os.path.isdir(src):
+            mounts.append((os.path.abspath(src), dest))
+    return mounts
+
+
+def rocm_use_local_tree(cmake_script, dest_name, mount_dest):
+    """Copy a bind-mounted backend tree into the container build directory."""
+    cmake_script.comment(f"Using bind-mounted sources from {mount_dest}")
+    cmake_script.cmd(
+        "rm -rf {dest} && mkdir {dest} && "
+        "tar -C {mount} --exclude=.git -cf - . | tar -C {dest} -xf -".format(
+            dest=dest_name, mount=mount_dest
+        )
+    )
 
 
 def backend_build(
@@ -2654,21 +2709,25 @@ def backend_build(
             "MIGRAPHX_EP_BRANCH",
         )
     elif be == "python" and FLAGS.enable_rocm:
-        # Use AMD-specific python_backend fork for ROCm support
-        cmake_script.gitclone(
-            "triton-inference-server-python_backend",
-            "rocm7.2_r25.12",
-            "python",
-            "https://github.com/ROCm",
-        )
+        if any(dest == "/mnt/python_backend" for _, dest in rocm_local_src_bind_mounts()):
+            rocm_use_local_tree(cmake_script, "python", "/mnt/python_backend")
+        else:
+            cmake_script.gitclone(
+                "triton-inference-server-python_backend",
+                "rocm10.2.0_r26.11_ubuntu2604",
+                "python",
+                "https://github.com/AMD-Ecosystem",
+            )
     elif be == "pytorch" and FLAGS.enable_rocm:
-        # Use AMD-specific pytorch_backend fork for ROCm support
-        cmake_script.gitclone(
-            "triton-inference-server-pytorch_backend",
-            "rocm7.2_r25.12",
-            "pytorch",
-            "https://github.com/ROCm",
-        )
+        if any(dest == "/mnt/pytorch_backend" for _, dest in rocm_local_src_bind_mounts()):
+            rocm_use_local_tree(cmake_script, "pytorch", "/mnt/pytorch_backend")
+        else:
+            cmake_script.gitclone(
+                "triton-inference-server-pytorch_backend",
+                "rocm10.2.0_r26.11_ubuntu2604",
+                "pytorch",
+                "https://github.com/AMD-Ecosystem",
+            )
     elif be == "tensorflow" and FLAGS.enable_rocm:
         cmake_script.gitclone(
             "triton-inference-server-tensorflow_backend", 
@@ -2788,7 +2847,14 @@ def backend_clone(
     repo = backend_repo(be)
     if be == "vllm" and FLAGS.enable_rocm:
         repo = "triton-inference-server-vllm_backend"
-    clone_script.gitclone(repo, tag, be, github_organization)
+    if (
+        be == "vllm"
+        and FLAGS.enable_rocm
+        and any(dest == "/mnt/vllm_backend" for _, dest in rocm_local_src_bind_mounts())
+    ):
+        rocm_use_local_tree(clone_script, be, "/mnt/vllm_backend")
+    else:
+        clone_script.gitclone(repo, tag, be, github_organization)
 
     repo_target_dir = os.path.join(install_dir, "backends")
     clone_script.mkdir(repo_target_dir)
@@ -3861,12 +3927,27 @@ if __name__ == "__main__":
     # Initialize map of common components and repo-tag for each.
     # ROCm builds use ROCm org repos and tags (triton-inference-server-core, triton-inference-server-backend, triton-inference-server-third_party).
     if FLAGS.enable_rocm:
+        if FLAGS.github_organization == "https://github.com/triton-inference-server":
+            FLAGS.github_organization = "https://github.com/AMD-Ecosystem"
         components = {
             "common": default_repo_tag,
-            "core": "rocm7.2_r25.12",      # https://github.com/ROCm/triton-inference-server-core
-            "backend": "rocm7.2_r25.12",   # https://github.com/ROCm/triton-inference-server-backend
-            "thirdparty": "rocm7.2_r25.12",  # https://github.com/ROCm/triton-inference-server-third_party
+            "core": "rocm10.2.0_r26.11_ubuntu2604",
+            "backend": "rocm10.2.0_r26.11_ubuntu2604",
+            "thirdparty": "rocm10.2.0_r26.11_ubuntu2604",
         }
+        local_mounts = rocm_local_src_bind_mounts()
+        if any(dest == "/mnt/core" for _, dest in local_mounts):
+            EXTRA_CORE_CMAKE_FLAGS.setdefault(
+                "FETCHCONTENT_SOURCE_DIR_REPO-CORE", "/mnt/core"
+            )
+        if any(dest == "/mnt/backend" for _, dest in local_mounts):
+            EXTRA_CORE_CMAKE_FLAGS.setdefault(
+                "FETCHCONTENT_SOURCE_DIR_REPO-BACKEND", "/mnt/backend"
+            )
+        if any(dest == "/mnt/third_party" for _, dest in local_mounts):
+            EXTRA_CORE_CMAKE_FLAGS.setdefault(
+                "FETCHCONTENT_SOURCE_DIR_REPO-THIRD-PARTY", "/mnt/third_party"
+            )
     else:
         components = {
             "common": default_repo_tag,
@@ -4005,8 +4086,8 @@ if __name__ == "__main__":
 
             if be == "vllm":
                 if FLAGS.enable_rocm:
-                    github_organization = "https://github.com/ROCm"
-                    backends[be] = "rocm7.2_r25.12"
+                    github_organization = "https://github.com/AMD-Ecosystem"
+                    backends[be] = "rocm10.2.0_r26.11_ubuntu2604"
                 backend_clone(
                     be,
                     cmake_script,
