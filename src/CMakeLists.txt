@@ -778,15 +778,13 @@ install(
   RUNTIME DESTINATION bin
 )
 
-if(${TRITON_ENABLE_GPU} OR ${TRITON_ENABLE_ROCM})
+# memory_alloc is a CUDA sample. Its hipified copy uses FAIL_IF_ROCM_ERR, which
+# this branch does not define, so skip it for ROCm builds (as simple is skipped).
+if(${TRITON_ENABLE_GPU})
   #
   # memory_alloc example
   #
-  if(${TRITON_ENABLE_ROCM} AND TRITON_HIPIFIED_SOURCES_DIR)
-    set(_memory_alloc_src "${TRITON_HIPIFIED_SOURCES_DIR}/src/memory_alloc.cc")
-  else()
-    set(_memory_alloc_src memory_alloc.cc)
-  endif()
+  set(_memory_alloc_src memory_alloc.cc)
   add_executable(
     memory_alloc
     ${_memory_alloc_src}
@@ -856,7 +854,7 @@ if(${TRITON_ENABLE_GPU} OR ${TRITON_ENABLE_ROCM})
     TARGETS memory_alloc
     RUNTIME DESTINATION bin
   )
-endif() # TRITON_ENABLE_GPU OR TRITON_ENABLE_ROCM
+endif() # TRITON_ENABLE_GPU
 
 # tritonfrontend python package
 add_subdirectory(python)

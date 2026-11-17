@@ -3952,8 +3952,10 @@ if __name__ == "__main__":
     # Initialize map of common components and repo-tag for each.
     # ROCm builds use ROCm org repos and tags (triton-inference-server-core, triton-inference-server-backend, triton-inference-server-third_party).
     if FLAGS.enable_rocm:
-        if FLAGS.github_organization == "https://github.com/triton-inference-server":
-            FLAGS.github_organization = "https://github.com/AMD-Ecosystem"
+        # Leave the organization on github.com/triton-inference-server.
+        # repo-common is fetched from ${TRITON_REPO_ORGANIZATION}/common.git,
+        # and AMD-Ecosystem/common is not readable from the build container.
+        # The ROCm 10.2 core, backend, and third_party trees are bind-mounted.
         components = {
             "common": default_repo_tag,
             "core": rocm_repo_tag(),
