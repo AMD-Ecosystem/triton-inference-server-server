@@ -1651,7 +1651,13 @@ ARG TRITON_CONTAINER_VERSION={}
         argmap["TRITON_VERSION"],
         argmap["TRITON_CONTAINER_VERSION"],
     )
-    if "vllm" in backends and argmap["INFERENCE_IMAGE"] is None:
+    # The upstream NVIDIA vLLM image is CUDA-only. A ROCm build keeps the ROCm
+    # base, which has libamdhip64.so.7 and libssh2.so.1. That CUDA image has neither.
+    if (
+        "vllm" in backends
+        and argmap["INFERENCE_IMAGE"] is None
+        and not FLAGS.enable_rocm
+    ):
         argmap[
             "INFERENCE_IMAGE"
         ] = f"nvcr.io/nvidia/vllm:{FLAGS.upstream_container_version}-py3"
@@ -2152,8 +2158,12 @@ RUN tar -xvf /opt/_internal/static-libs-for-embedding-only.tar.xz \\
 
 
 def get_base_image_rocm_debian():
-    """Return base image for ROCm Debian"""
-    return "localhost/debian12_rocm10.1.0"
+    """Return base image for ROCm Debian.
+
+    The tritonserver wheel requires Python >=3.12. debian12_rocm10.2.0 ships
+    Debian's 3.11, so the Debian build uses the py312 image.
+    """
+    return "localhost/debian12_rocm10.2.0-py312"
 
 
 def get_base_image_rocm_ubuntu():
