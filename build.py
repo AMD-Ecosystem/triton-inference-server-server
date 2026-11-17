@@ -1466,6 +1466,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
       libpsl-dev \\
       libssh2-1-dev \\
     && rm -rf /var/lib/apt/lists/*
+# core/python/build_wheel.py imports distutils. Python 3.12 (vLLM card) has
+# no stdlib distutils, so keep setuptools (which provides it) in the builder.
+RUN python3 -m pip install --no-cache-dir --break-system-packages "setuptools>=70,<81"
 """
 
         # Debian 12: libboost-dev is 1.74 (< 1.78), so install Boost from tarball.
