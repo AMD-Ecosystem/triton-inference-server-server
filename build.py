@@ -525,6 +525,18 @@ def core_cmake_args(components, backends, cmake_dir, install_dir):
 
     cargs.append(cmake_core_enable("TRITON_ENABLE_MALI_GPU", FLAGS.enable_mali_gpu))
     cargs.append(cmake_core_arg("TRITON_LINUX_DISTRO", "STRING", FLAGS.linux_distro))
+    # Debian 12's distro Python is 3.11. These wheels require 3.12, which the
+    # py312 base image installs at /usr/local/bin/python3. Pin it so a reused
+    # build tree cannot keep compiling the extensions for 3.11.
+    if FLAGS.enable_rocm and FLAGS.linux_distro == "debian":
+        cargs.append(
+            cmake_core_arg(
+                "Python3_EXECUTABLE", "FILEPATH", "/usr/local/bin/python3"
+            )
+        )
+        cargs.append(
+            cmake_core_arg("Python_EXECUTABLE", "FILEPATH", "/usr/local/bin/python3")
+        )
 
     cargs.append(cmake_core_enable("TRITON_ENABLE_GRPC", "grpc" in FLAGS.endpoint))
     cargs.append(cmake_core_enable("TRITON_ENABLE_HTTP", "http" in FLAGS.endpoint))
@@ -656,6 +668,17 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
     cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_GPU", FLAGS.enable_gpu))
     cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_ROCM", FLAGS.enable_rocm))
     cargs.append(cmake_backend_arg(be, "TRITON_LINUX_DISTRO", "STRING", FLAGS.linux_distro))
+    if FLAGS.enable_rocm and FLAGS.linux_distro == "debian":
+        cargs.append(
+            cmake_backend_arg(
+                be, "Python3_EXECUTABLE", "FILEPATH", "/usr/local/bin/python3"
+            )
+        )
+        cargs.append(
+            cmake_backend_arg(
+                be, "Python_EXECUTABLE", "FILEPATH", "/usr/local/bin/python3"
+            )
+        )
     cargs.append(
         cmake_backend_enable(be, "TRITON_ENABLE_MALI_GPU", FLAGS.enable_mali_gpu)
     )
@@ -1457,14 +1480,15 @@ RUN pip3 install --upgrade \\
           pybind11[global]
 """
 
-        # Debian 12: curl's CMake looks for /usr/include/libpsl.h and
-        # /usr/include/libssh2.h. The base has the runtime libraries only, so
-        # the third-party curl configure fails without these -dev packages.
+        # Debian 12: curl's CMake looks for libpsl.h, libssh2.h, and idn2.h.
+        # The base has the runtime libraries only, so the third-party curl
+        # configure fails without these -dev packages.
         if getattr(FLAGS, "linux_distro", "ubuntu") == "debian":
             df += """
 RUN apt-get update && apt-get install -y --no-install-recommends \\
       libpsl-dev \\
       libssh2-1-dev \\
+      libidn2-dev \\
     && rm -rf /var/lib/apt/lists/*
 # core/python/build_wheel.py imports distutils. Python 3.12 (vLLM card) has
 # no stdlib distutils, so keep setuptools (which provides it) in the builder.
@@ -1514,15 +1538,23 @@ ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
             if pytorch_requested:
                 if FLAGS.linux_distro == "debian":
                     # The Debian 12 ROCm 10.2 image has no published +rocm10.2
-                    # wheel. 2.14.0+rocm10.1.0 is the newest cp311 wheel on
-                    # whl-next (torchvision pairs as 0.29.0a0+rocm10.1.0).
-                    df += """
+                    # wheel. 2.14.0+rocm10.1.0 is the cp312 wheel on whl-next
+                    # (torchvision pairs as 0.29.0a0+rocm10.1.0).
+                    # device-all downloads every gfx* package and filled the
+                    # disk; install only the arches this build targets.
+                    torch_archs = [
+                        a.strip()
+                        for a in (FLAGS.rocm_arch or "gfx942").split(",")
+                        if a.strip()
+                    ]
+                    torch_extra = ",".join(f"device-{a}" for a in torch_archs)
+                    df += f"""
 # Install PyTorch for ROCm (needed by pytorch backend build)
 RUN pip3 install --no-cache-dir wheel && \\
     pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[device-all]==2.14.0+rocm10.1.0" \\
-      "torchvision[device-all]==0.29.0a0+rocm10.1.0"
+      "torch[{torch_extra}]==2.14.0+rocm10.1.0" \\
+      "torchvision[{torch_extra}]==0.29.0a0+rocm10.1.0"
 """
                 else:
                     # Ubuntu base image ships ROCm 7.2.x: keep the previous wheels
@@ -1743,12 +1775,19 @@ ENV UCX_MEM_EVENTS no
         if enable_rocm:
             if FLAGS.linux_distro == "debian":
                 # Same wheel as the build image. No +rocm10.2 torch is published.
-                df += """
+                # Match the build image: only the requested GPU arches.
+                torch_archs = [
+                    a.strip()
+                    for a in (FLAGS.rocm_arch or "gfx942").split(",")
+                    if a.strip()
+                ]
+                torch_extra = ",".join(f"device-{a}" for a in torch_archs)
+                df += f"""
 # Install PyTorch ROCm wheel in the production container for runtime libs
 RUN pip3 install --no-cache-dir wheel && \\
     pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[device-all]==2.14.0+rocm10.1.0"
+      "torch[{torch_extra}]==2.14.0+rocm10.1.0"
 """
             else:
                 # Ubuntu base image ships ROCm 7.2.x: keep the previous wheel
@@ -2522,6 +2561,27 @@ def core_build(
     cmake_script.cp(
         os.path.join(repo_install_dir, "python", "triton*.whl"),
         os.path.join(install_dir, "python"),
+    )
+    # Drop wheels built for another CPython (a stale cp314 wheel from an
+    # earlier Ubuntu build) and keep only the newest wheel that matches
+    # the interpreter in this image. The final image installs every
+    # tritonserver-*.whl and tritonfrontend-*.whl it finds.
+    py_dir = os.path.join(install_dir, "python")
+    cmake_script.cmd(
+        f"""python3 - << 'PY'
+import sys
+from pathlib import Path
+root = Path({py_dir!r})
+abi = "cp%d%d" % (sys.version_info[0], sys.version_info[1])
+for pkg in ("tritonserver", "tritonfrontend"):
+    wheels = list(root.glob(pkg + "-*.whl"))
+    match = [w for w in wheels if "-%s-%s-" % (abi, abi) in w.name]
+    match.sort(key=lambda p: p.stat().st_mtime)
+    keep = set(match[-1:])
+    for w in wheels:
+        if w not in keep:
+            w.unlink()
+PY"""
     )
 
     cmake_script.mkdir(os.path.join(install_dir, "include", "triton"))
@@ -3688,6 +3748,15 @@ if __name__ == "__main__":
         FLAGS.extra_backend_cmake_arg = []
     if FLAGS.docker_build_secret is None:
         FLAGS.docker_build_secret = []
+
+    # Debian 12 is CPython 3.11 and has no CUDA. The default "all" extra
+    # installs cupy-cuda13x, which cannot be installed in this image.
+    if (
+        FLAGS.enable_rocm
+        and FLAGS.linux_distro == "debian"
+        and FLAGS.triton_wheels_dependencies_group == "all"
+    ):
+        FLAGS.triton_wheels_dependencies_group = "test"
 
     FLAGS.boost_url = os.getenv(
         "TRITON_BOOST_URL",

@@ -402,10 +402,16 @@ def main():
     cpdir("tritonfrontend/_c", os.path.join(FLAGS.whl_dir, "tritonfrontend", "_c"))
     cpdir("tritonfrontend/_api", os.path.join(FLAGS.whl_dir, "tritonfrontend", "_api"))
     PYBIND_LIB = os.path.basename(FLAGS.binding_path)
+    c_dir = os.path.join(FLAGS.whl_dir, "tritonfrontend", "_c")
     shutil.copyfile(
         FLAGS.binding_path,
-        os.path.join(FLAGS.whl_dir, "tritonfrontend", "_c", PYBIND_LIB),
+        os.path.join(c_dir, PYBIND_LIB),
     )
+    # Drop extensions built for a different CPython so auditwheel tags the
+    # wheel for this interpreter's libstdc++/glibc, not a leftover binary.
+    for name in os.listdir(c_dir):
+        if name.startswith("triton_bindings") and name.endswith(".so") and name != PYBIND_LIB:
+            os.remove(os.path.join(c_dir, name))
 
     shutil.copyfile("LICENSE.txt", os.path.join(FLAGS.whl_dir, "LICENSE.txt"))
     shutil.copyfile("pyproject.toml", os.path.join(FLAGS.whl_dir, "pyproject.toml"))

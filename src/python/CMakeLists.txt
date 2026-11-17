@@ -39,6 +39,7 @@ set(WHEEL_DEPENDS
       ${CMAKE_CURRENT_BINARY_DIR}/pyproject.toml
       ${CMAKE_CURRENT_BINARY_DIR}/hatch_build.py
       ${CMAKE_CURRENT_BINARY_DIR}/tritonfrontend
+      ${CMAKE_CURRENT_SOURCE_DIR}/build_wheel.py
       py-bindings
 )
 
