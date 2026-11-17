@@ -409,8 +409,9 @@ def main():
     )
     # Drop extensions built for a different CPython so auditwheel tags the
     # wheel for this interpreter's libstdc++/glibc, not a leftover binary.
+    # The frontend library is tritonfrontend_bindings, not triton_bindings.
     for name in os.listdir(c_dir):
-        if name.startswith("triton_bindings") and name.endswith(".so") and name != PYBIND_LIB:
+        if name.endswith(".so") and name != PYBIND_LIB:
             os.remove(os.path.join(c_dir, name))
 
     shutil.copyfile("LICENSE.txt", os.path.join(FLAGS.whl_dir, "LICENSE.txt"))
