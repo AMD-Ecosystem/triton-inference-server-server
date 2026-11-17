@@ -1721,6 +1721,23 @@ RUN set -e; \\
 RUN pip3 install -r python/openai/requirements.txt
 
 """
+    # Debian 12's /usr/bin/python3 is 3.11. The QA scripts used to pip-install
+    # these clients after putting /usr/bin first on PATH, so the wheels landed
+    # on 3.11 while the suite requires 3.12. Build them into the image for the
+    # py312 interpreter instead.
+    if FLAGS.enable_rocm and getattr(FLAGS, "linux_distro", "ubuntu") == "debian":
+        df += """
+RUN /usr/local/bin/python3 -m pip install --no-cache-dir \\
+      "tritonclient[http,grpc]" \\
+      "geventhttpclient<=2.3.3" \\
+      requests \\
+      pybind11 \\
+      pytest==8.1.1 \\
+      "onnx==1.22.0" \\
+      "ml_dtypes<=0.5.4" \\
+      "botocore>=1.43.126,<1.44" \\
+      "s3transfer>=0.19,<0.20"
+"""
     if not FLAGS.no_core_build:
         # Add feature labels for SageMaker endpoint
         if "sagemaker" in endpoints:
