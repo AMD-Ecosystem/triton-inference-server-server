@@ -1457,6 +1457,17 @@ RUN pip3 install --upgrade \\
           pybind11[global]
 """
 
+        # Debian 12: curl's CMake looks for /usr/include/libpsl.h and
+        # /usr/include/libssh2.h. The base has the runtime libraries only, so
+        # the third-party curl configure fails without these -dev packages.
+        if getattr(FLAGS, "linux_distro", "ubuntu") == "debian":
+            df += """
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+      libpsl-dev \\
+      libssh2-1-dev \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
         # Debian 12: libboost-dev is 1.74 (< 1.78), so install Boost from tarball.
         # Ubuntu 24.04: libboost-dev is >= 1.78 and provides BoostConfig.cmake; use apt.
         if getattr(FLAGS, "linux_distro", "ubuntu") == "debian":
