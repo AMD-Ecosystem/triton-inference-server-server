@@ -2554,9 +2554,18 @@ def core_build(
     # Pull it in from the build tree directly so the subsequent
     # `triton*.whl` glob picks it up. Safe no-op when the wheel is
     # absent (e.g. downstream builds that disable the frontend).
+    # Clear tritonfrontend wheels left by earlier builds before copying the
+    # current one. Stale wheels from another platform tag (manylinux_2_39)
+    # otherwise win the newest-by-mtime pick in the filter below.
+    cmake_script.cmd(
+        f"rm -f {os.path.join(repo_install_dir, 'python', 'tritonfrontend-*.whl')}"
+    )
     cmake_script.cmd(
         f"find {repo_build_dir} -path '*/wheel/dist/tritonfrontend-*.whl' "
         f"-exec cp {{}} {os.path.join(repo_install_dir, 'python')}/ \\;"
+    )
+    cmake_script.cmd(
+        f"rm -f {os.path.join(install_dir, 'python', 'triton*.whl')}"
     )
     cmake_script.cp(
         os.path.join(repo_install_dir, "python", "triton*.whl"),
