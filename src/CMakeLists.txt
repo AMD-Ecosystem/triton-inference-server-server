@@ -835,6 +835,7 @@ if(${TRITON_ENABLE_GPU})
       memory_alloc
       PRIVATE TRITON_ENABLE_ROCM=1
       PRIVATE __HIP_PLATFORM_AMD__=1
+      PRIVATE TRITON_MIN_COMPUTE_CAPABILITY=${TRITON_MIN_COMPUTE_CAPABILITY}
     )
   
     target_include_directories(

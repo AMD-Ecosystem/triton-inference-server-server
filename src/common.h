@@ -155,7 +155,9 @@ const std::vector<std::string> TRITON_RESERVED_REQUEST_PARAMS{
     }                                  \
   } while (false)
 
-#ifdef TRITON_ENABLE_GPU
+// The ROCm build hipifies this macro to FAIL_IF_ROCM_ERR (memory_alloc.cc
+// uses it), so enable it for ROCm too.
+#if defined(TRITON_ENABLE_GPU) || defined(TRITON_ENABLE_ROCM)
 #define FAIL_IF_CUDA_ERR(X, MSG)                                           \
   do {                                                                     \
     cudaError_t err__ = (X);                                               \
