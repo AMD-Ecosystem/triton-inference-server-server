@@ -60,3 +60,11 @@ RUN python3 -m pip install -q \
     && PIP_CONSTRAINT= python3 -m pip install -q \
         "botocore>=1.43.126,<1.44" \
         "s3transfer>=0.19,<0.20"
+
+# pgrep (procps) is what L0_backend_python uses to find the stub process.
+# jq is what the QA scripts call. Installing them here keeps the test
+# containers off deb.debian.org, which has been timing out.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        procps \
+        jq \
+    && rm -rf /var/lib/apt/lists/*
