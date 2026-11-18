@@ -62,9 +62,11 @@ RUN python3 -m pip install -q \
         "s3transfer>=0.19,<0.20"
 
 # pgrep (procps) is what L0_backend_python uses to find the stub process.
-# jq is what the QA scripts call. Installing them here keeps the test
-# containers off deb.debian.org, which has been timing out.
+# jq is what the QA scripts call. libboost-dev is what the Python card uses
+# to compile shm_monitor. Installing them here keeps the test containers off
+# deb.debian.org, which has been timing out.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         procps \
         jq \
+        libboost-dev \
     && rm -rf /var/lib/apt/lists/*
