@@ -61,6 +61,9 @@ RUN python3 -m pip install -q \
         "botocore>=1.43.126,<1.44" \
         "s3transfer>=0.19,<0.20"
 
+# L0_backend_python checks for virtualenv at test time. Shared by every TIS card.
+RUN python3 -m pip install -q virtualenv
+
 # pgrep (procps) is what L0_backend_python uses to find the stub process.
 # jq is what the QA scripts call. libboost-dev is what the Python card uses
 # to compile shm_monitor. Installing them here keeps the test containers off

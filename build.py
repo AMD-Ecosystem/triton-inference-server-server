@@ -1086,7 +1086,7 @@ def tensorflow_rocm_cmake_args():
         cmake_backend_arg("tensorflow",
             "TRITON_TENSORFLOW_DOCKER_IMAGE",
             None,
-            "localhost/debian12_rocm10.1.0_tensorflow"
+            "localhost/debian12_rocm10.2.0_tensorflow"
         )
     )
     return cargs
@@ -2706,9 +2706,19 @@ def rocm_repo_tag():
 
 
 def rocm_local_src_bind_mounts():
-    """Bind local ROCm 10.2 checkouts into the builder when they exist."""
+    """Bind local ROCm 10.2 checkouts into the builder when they exist.
+
+    A backend's --<name>-backend-dir flag, when set, names the checkout to
+    mount in place of the ~/triton_work default. A flag that points nowhere is
+    an error, so the build never falls back to a different source silently.
+    """
     mounts = []
     home = os.path.expanduser("~/triton_work")
+    flag_for_dest = {
+        "/mnt/python_backend": "python_backend_dir",
+        "/mnt/pytorch_backend": "pytorch_backend_dir",
+        "/mnt/vllm_backend": "vllm_backend_dir",
+    }
     for name, dest in (
         ("triton-inference-server-core", "/mnt/core"),
         ("triton-inference-server-backend", "/mnt/backend"),
@@ -2718,6 +2728,17 @@ def rocm_local_src_bind_mounts():
         ("triton-inference-server-vllm_backend", "/mnt/vllm_backend"),
         ("triton-inference-server-onnxruntime_backend", "/mnt/onnxruntime_backend"),
     ):
+        flag_name = flag_for_dest.get(dest)
+        flag_dir = getattr(FLAGS, flag_name, None) if flag_name else None
+        if flag_dir:
+            if not os.path.isdir(flag_dir):
+                raise FileNotFoundError(
+                    "--{} is not a directory: {}".format(
+                        flag_name.replace("_", "-"), flag_dir
+                    )
+                )
+            mounts.append((os.path.abspath(flag_dir), dest))
+            continue
         src = os.path.join(home, name)
         if os.path.isdir(src):
             mounts.append((os.path.abspath(src), dest))
@@ -3695,6 +3716,21 @@ if __name__ == "__main__":
         "instead of cloning. When set, this directory is copied into the build "
         "tree in place of the upstream clone. Used by onnxruntime backend (ROCm).",
     )
+    for flag, what in (
+        ("--python-backend-dir", "python_backend"),
+        ("--pytorch-backend-dir", "pytorch_backend"),
+        ("--vllm-backend-dir", "vllm_backend"),
+    ):
+        parser.add_argument(
+            flag,
+            required=False,
+            type=str,
+            default=None,
+            help="Path to a local ROCm {} checkout to build instead of "
+            "cloning. It is bind-mounted into the build container in place of "
+            "~/triton_work/triton-inference-server-{}. Used by the {} backend "
+            "(ROCm).".format(what, what, what.split("_")[0]),
+        )
     # Default pin is onnxruntime/onnxruntime-ep-amdgpu@71e1b3d ("Cleanup pad
     # slice overhead" #148 on main), which includes the #output_N-by-name remap.
     # Pass --migraphx-ep-branch=main to follow the branch tip instead.
