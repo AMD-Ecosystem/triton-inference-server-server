@@ -665,6 +665,16 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
         ),
     ]
 
+    # Build backends against the bind-mounted core and backend checkouts, the
+    # same trees the server uses, instead of fetching their repo tags.
+    if FLAGS.enable_rocm and FLAGS.linux_distro == "debian" and be != "tensorflow":
+        local_dests = {dest for _, dest in rocm_local_src_bind_mounts()}
+        for repo, dest in (("REPO-CORE", "/mnt/core"), ("REPO-BACKEND", "/mnt/backend")):
+            if dest in local_dests:
+                cargs.append(
+                    cmake_backend_arg(be, f"FETCHCONTENT_SOURCE_DIR_{repo}", "PATH", dest)
+                )
+
     cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_GPU", FLAGS.enable_gpu))
     cargs.append(cmake_backend_enable(be, "TRITON_ENABLE_ROCM", FLAGS.enable_rocm))
     cargs.append(cmake_backend_arg(be, "TRITON_LINUX_DISTRO", "STRING", FLAGS.linux_distro))
@@ -1542,7 +1552,7 @@ ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
                     # disk; install only the arches this build targets.
                     torch_archs = [
                         a.strip()
-                        for a in (FLAGS.rocm_arch or "gfx942").split(",")
+                        for a in (FLAGS.rocm_arch or "gfx942,gfx950").split(",")
                         if a.strip()
                     ]
                     torch_extra = ",".join(f"device-{a}" for a in torch_archs)
@@ -1798,7 +1808,7 @@ ENV UCX_MEM_EVENTS no
                 # Same wheel as the build image, only the requested GPU arches.
                 torch_archs = [
                     a.strip()
-                    for a in (FLAGS.rocm_arch or "gfx942").split(",")
+                    for a in (FLAGS.rocm_arch or "gfx942,gfx950").split(",")
                     if a.strip()
                 ]
                 torch_extra = ",".join(f"device-{a}" for a in torch_archs)
@@ -3465,9 +3475,9 @@ if __name__ == "__main__":
         "--rocm-arch",
         type=str,
         required=False,
-        default=os.getenv("ROCM_GFX_ARCHS", "gfx942,gfx950"),
-        help="Comma-separated AMD GPU target architecture(s) (e.g. 'gfx942' or "
-        "'gfx942,gfx90a') to build ROCm backends for. Exported as the "
+        default="gfx942,gfx950",
+        help="Comma-separated AMD GPU target architecture(s) to build ROCm "
+        "backends for. Default gfx942,gfx950 covers MI300X and MI355X. Exported as the "
         "PYTORCH_ROCM_ARCH environment variable before configuring the "
         "pytorch backend, since PyTorch's CMake (LoadHIP.cmake) fails with "
         "'No GPU arch specified for ROCm build' otherwise.",

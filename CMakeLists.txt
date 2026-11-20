@@ -248,6 +248,16 @@ if (OPENSSL_ROOT_DIR)
   set(_CMAKE_ARGS_OPENSSL_ROOT_DIR "-DOPENSSL_ROOT_DIR:PATH=${OPENSSL_ROOT_DIR}")
 endif()
 
+# If local core/backend/common checkouts are given, propagate them so the
+# triton-server project builds from them instead of fetching from git.
+set(_CMAKE_ARGS_FETCHCONTENT_SOURCE_DIRS "")
+foreach(_repo REPO-CORE REPO-BACKEND REPO-COMMON)
+  if (FETCHCONTENT_SOURCE_DIR_${_repo})
+    list(APPEND _CMAKE_ARGS_FETCHCONTENT_SOURCE_DIRS
+      "-DFETCHCONTENT_SOURCE_DIR_${_repo}:PATH=${FETCHCONTENT_SOURCE_DIR_${_repo}}")
+  endif()
+endforeach()
+
 set(_FINDPACKAGE_PROTOBUF_CONFIG_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/${LIB_DIR}/cmake/protobuf")
 set(_FINDPACKAGE_UTF8_RANGE_CONFIG_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/${LIB_DIR}/cmake/utf8_range")
 
@@ -292,6 +302,7 @@ ExternalProject_Add(triton-server
     ${_CMAKE_ARGS_OPENSSL_ROOT_DIR}
     ${_CMAKE_ARGS_CMAKE_TOOLCHAIN_FILE}
     ${_CMAKE_ARGS_VCPKG_TARGET_TRIPLET}
+    ${_CMAKE_ARGS_FETCHCONTENT_SOURCE_DIRS}
     -DGTEST_ROOT:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/googletest
     -DgRPC_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/grpc/lib/cmake/grpc
     -Dc-ares_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/c-ares/${LIB_DIR}/cmake/c-ares
