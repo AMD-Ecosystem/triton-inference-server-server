@@ -72,11 +72,9 @@ RUN printf '%s\n' \
     > /etc/apt/sources.list.d/amdrocm-stable.sources \
     && apt-get update
 
-# ROCm packages for the GPU architectures listed in ROCM_GFX_ARCHS
-# (comma-separated). Default is gfx942 (MI300X / MI325X / MI300A), matching
-# the other ROCm 10.2 TIS cards. Add gfx950 for MI355X, for example:
-#   --build-arg ROCM_GFX_ARCHS=gfx942,gfx950
-ARG ROCM_GFX_ARCHS=gfx942
+# ROCm packages for gfx942 (CDNA3: MI300X, MI308X, MI325X, MI300A) and
+# gfx950 (CDNA4: MI355X); the release image must run on both.
+ARG ROCM_GFX_ARCHS=gfx942,gfx950
 ARG ROCM_PKG_VERSION=10.2.0-2
 RUN apt-get update && \
     pkgs="" && \
