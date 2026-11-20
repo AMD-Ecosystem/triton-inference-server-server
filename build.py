@@ -1537,9 +1537,7 @@ ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
             )
             if pytorch_requested:
                 if FLAGS.linux_distro == "debian":
-                    # The Debian 12 ROCm 10.2 image has no published +rocm10.2
-                    # wheel. 2.14.0+rocm10.1.0 is the cp312 wheel on whl-next
-                    # (torchvision pairs as 0.29.0a0+rocm10.1.0).
+                    # cp312 ROCm 10.2 wheels from whl-next.
                     # device-all downloads every gfx* package and filled the
                     # disk; install only the arches this build targets.
                     torch_archs = [
@@ -1553,8 +1551,8 @@ ENV CMAKE_PREFIX_PATH=/opt/rocm:/opt/rocm/lib/cmake:${CMAKE_PREFIX_PATH}
 RUN pip3 install --no-cache-dir wheel && \\
     pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[{torch_extra}]==2.14.0+rocm10.1.0" \\
-      "torchvision[{torch_extra}]==0.29.0a0+rocm10.1.0"
+      "torch[{torch_extra}]==2.14.0+rocm10.2.0" \\
+      "torchvision[{torch_extra}]==0.29.0+rocm10.2.0"
 """
                 else:
                     # Ubuntu base image ships ROCm 7.2.x: keep the previous wheels
@@ -1797,8 +1795,7 @@ ENV UCX_MEM_EVENTS no
     if "pytorch" in backends:
         if enable_rocm:
             if FLAGS.linux_distro == "debian":
-                # Same wheel as the build image. No +rocm10.2 torch is published.
-                # Match the build image: only the requested GPU arches.
+                # Same wheel as the build image, only the requested GPU arches.
                 torch_archs = [
                     a.strip()
                     for a in (FLAGS.rocm_arch or "gfx942").split(",")
@@ -1810,7 +1807,7 @@ ENV UCX_MEM_EVENTS no
 RUN pip3 install --no-cache-dir wheel && \\
     pip3 install --no-cache-dir --index-url https://stable.repo.amd.com/rocm/whl-next/ \\
       --extra-index-url https://pypi.org/simple \\
-      "torch[{torch_extra}]==2.14.0+rocm10.1.0"
+      "torch[{torch_extra}]==2.14.0+rocm10.2.0"
 """
             else:
                 # Ubuntu base image ships ROCm 7.2.x: keep the previous wheel
@@ -2012,9 +2009,9 @@ RUN apt-get update \\
 
     if "vllm" in backends and enable_rocm:
         if FLAGS.linux_distro == "debian":
-            # This Debian 12 base does not contain vLLM. The published ROCm 10
-            # wheel is cp312, so the vLLM card's base image is Python 3.12.
-            df += install_vllm("https://wheels.vllm.ai/rocm/nightly/rocm100")
+            # This Debian 12 base does not contain vLLM. Pin the released ROCm
+            # cp312 wheel; the nightly index can drop cp312 builds.
+            df += install_vllm("https://wheels.vllm.ai/rocm/", "vllm==0.34.0+rocm100")
         else:
             # vLLM engine is installed through a wheel for Ubuntu.
             df += install_vllm()
@@ -2681,13 +2678,13 @@ def tensorrtllm_postbuild(cmake_script, repo_install_dir, tensorrtllm_be_dir):
     )
 
 
-def install_vllm(index="https://wheels.vllm.ai/rocm/nightly/rocm721"):
+def install_vllm(index="https://wheels.vllm.ai/rocm/nightly/rocm721", spec="vllm"):
     """Return Dockerfile fragment to install vLLM for ROCm."""
     df = f"""
 # Install vLLM pre-built wheel for ROCm
 RUN apt-get update && apt-get install -y --no-install-recommends libopenmpi-dev && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --no-cache-dir uv
-RUN uv pip install --system --no-cache --break-system-packages vllm --pre \\
+RUN uv pip install --system --no-cache --break-system-packages "{spec}" --pre \\
         --extra-index-url {index} \\
         --upgrade
 """
@@ -3679,7 +3676,7 @@ if __name__ == "__main__":
         "--migraphx-package-version",
         required=False,
         type=str,
-        default="2.18.0+rocm10.1.0",
+        default="2.19.0+rocm10.2.0",
         help="Version tag of the prebuilt amdrocm-migraphx packages (used when "
         "--migraphx-build-mode=package). Must match the base image ROCm train "
         "(e.g. 2.17.0 => rocm10.0.0) and Debian release (debian12). Used by "
