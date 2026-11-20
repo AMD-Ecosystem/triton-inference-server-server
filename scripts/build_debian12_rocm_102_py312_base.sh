@@ -5,9 +5,7 @@
 # Builds localhost/debian12_rocm10.2.0 first (scripts/build_debian12_rocm_102_base.sh),
 # then localhost/debian12_rocm10.2.0-py312 from Dockerfile.debian12_rocm10.2.0-py312.
 # Set SKIP_BASE=1 to reuse an existing localhost/debian12_rocm10.2.0.
-#
-# Only the default ROCM_GFX_ARCHS (gfx942,gfx950) is supported here, because the
-# py312 layer is built on the default base tag.
+# Both images cover gfx942 (MI300X) and gfx950 (MI355X).
 
 set -e
 

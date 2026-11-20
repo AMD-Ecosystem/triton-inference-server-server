@@ -146,7 +146,9 @@ RUN chmod +x /usr/local/bin/repro_tensorflow_rocm_build_test.sh
 
 # Sensible defaults; script allows overrides via env vars.
 ENV TF_REPO=https://github.com/ROCm/tensorflow-upstream.git
-ENV TF_BRANCH=develop-upstream
+# TensorFlow 2.23.0: the develop-upstream commit the Triton patch is tested
+# against (2026-11-17). develop-upstream moves, so pin the commit.
+ENV TF_BRANCH=dfd08c71c73b4b5738f9e98f3463439b6bd2366f
 ENV TF_WORKDIR=/workspace
 ENV TF_PYTHON_VERSION=3.12
 
