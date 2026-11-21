@@ -2704,11 +2704,11 @@ RUN uv pip install --system --no-cache --break-system-packages "{spec}" --pre \\
 def rocm_repo_tag():
     """Git tag for the ROCm core, backend, third_party, and backend repos.
 
-    Debian 12 builds use the rocm10.2_r26.10.amd0_debian12 branches. Ubuntu builds
+    Debian 12 builds use the rocm10.2_r26.10 branches. Ubuntu builds
     keep the rocm10.2.0_r26.11_ubuntu2604 tags.
     """
     if getattr(FLAGS, "linux_distro", "ubuntu") == "debian":
-        return "rocm10.2_r26.10.amd0_debian12"
+        return "rocm10.2_r26.10"
     return "rocm10.2.0_r26.11_ubuntu2604"
 
 
