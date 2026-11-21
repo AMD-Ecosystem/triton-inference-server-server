@@ -1,0 +1,37 @@
+name: "dummy_migraphx_onnx"
+backend: "onnxruntime"
+max_batch_size: 64
+
+dynamic_batching {
+    max_queue_delay_microseconds: 300
+    preserve_ordering: true
+}
+
+optimization {
+    cuda {
+        graphs: true
+    }
+    input_pinned_memory {
+        enable: true
+    }
+    execution_accelerators {
+        gpu_execution_accelerator {
+            name: "migraphx"
+            parameters: {
+                key: "migraphx_max_dynamic_batch"
+                value: "64"
+            }
+        }
+    }
+}
+
+input: [
+    { name: "input", data_type: TYPE_FP32, dims: [8] }
+]
+output: [
+    { name: "output", data_type: TYPE_FP32, dims: [4] }
+]
+
+instance_group [
+    { kind: KIND_GPU, count: 2, gpus: [0] }
+]
