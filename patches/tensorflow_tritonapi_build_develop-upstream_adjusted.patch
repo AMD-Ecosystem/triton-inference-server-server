@@ -37,7 +37,7 @@ diff --git a/tensorflow/core/common_runtime/BUILD b/tensorflow/core/common_runti
 index 982b65b0..ef076d5f 100644
 --- a/tensorflow/core/common_runtime/BUILD
 +++ b/tensorflow/core/common_runtime/BUILD
-@@ -1305,6 +1305,36 @@ cc_library(
+@@ -1305,6 +1305,37 @@ cc_library(
      ],
  )
  
@@ -55,6 +55,7 @@ index 982b65b0..ef076d5f 100644
 +        "//tensorflow/c:c_api_headers",
 +        "//tensorflow/c:env",
 +        "//tensorflow/cc/saved_model:loader",
++        "//tensorflow/cc/saved_model:reader",
 +        "//tensorflow/cc/saved_model:tag_constants",
 +        "//tensorflow/core:framework",
 +        "//tensorflow/core:framework_internal",
@@ -79,7 +80,7 @@ new file mode 100644
 index 00000000..5fffa108
 --- /dev/null
 +++ b/tensorflow/core/common_runtime/tensorflow_backend_tf.cc
-@@ -0,0 +1,1189 @@
+@@ -0,0 +1,1193 @@
 +// Copyright 2019-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 +//
 +// Redistribution and use in source and binary forms, with or without
@@ -110,6 +111,7 @@ index 00000000..5fffa108
 +
 +#include "tensorflow/c/c_api.h"
 +#include "tensorflow/cc/saved_model/loader.h"
++#include "tensorflow/cc/saved_model/reader.h"
 +#include "tensorflow/cc/saved_model/tag_constants.h"
 +#include "tensorflow/core/common_runtime/device.h"
 +#include "tensorflow/core/common_runtime/device_mgr.h"
@@ -1006,27 +1008,9 @@ index 00000000..5fffa108
 +      tftrt_config, auto_mixed_precision, &session_options);
 +
 +
-+  if (device_id != TRITONTF_MODEL_DEVICE) {
-+    // Set the default device to control the CPU/GPU that the graph runs
-+    // on.
-+    //
-+    // The GraphDef where we need to use this workaround is only
-+    // available in tensorflow/cc/saved_model/loader.cc so we use
-+    // allocator_type in pass in the gpu_device we want and then
-+    // loader.cc (our modified version) will use that to
-+    // SetDefaultDevice appropriately.
-+    if (device_id == TRITONTF_NO_GPU_DEVICE) {
-+      session_options.config.mutable_gpu_options()->set_allocator_type(
-+          "/cpu:0");
-+    } else {
-+      session_options.config.mutable_gpu_options()->set_allocator_type(
-+          "/gpu:" + std::to_string(device_id));
-+    }
-+  } else {
-+    // Make sure the allocator_type field is empty so that loader.cc doesn't set
-+    // device for the placement and let Tensorflow handle the model placement.
-+    session_options.config.mutable_gpu_options()->clear_allocator_type();
-+  }
++  // TensorFlow's GPU allocator rejects any allocator_type other than empty or
++  // "BFC", so it can't carry the device; set the default device on the graph.
++  session_options.config.mutable_gpu_options()->clear_allocator_type();
 +
 +  std::unique_ptr<tensorflow::SavedModelBundle> bundle(
 +      new tensorflow::SavedModelBundle);
@@ -1039,10 +1023,31 @@ index 00000000..5fffa108
 +                                     : graph_tag;
 +  saved_model_tags.insert(TAG_TO_USE);
 +
++  // Same steps as tensorflow::LoadSavedModel, with the default device set on
++  // the graph before the session is created.
++  RETURN_IF_TF_ERROR(tensorflow::ReadMetaGraphDefFromSavedModel(
++      model_path, saved_model_tags, &bundle->meta_graph_def));
++  if (device_id != TRITONTF_MODEL_DEVICE) {
++    tensorflow::GraphDef* graph_def =
++        bundle->meta_graph_def.mutable_graph_def();
++    for (tensorflow::NodeDef& node : *graph_def->mutable_node()) {
++      if (!tensorflow::grappler::NodeIsOnCpu(&node)) {
++        node.clear_device();
++      }
++    }
++    if (device_id == TRITONTF_NO_GPU_DEVICE) {
++      tensorflow::graph::SetDefaultDevice("/cpu:0", graph_def);
++    } else {
++      tensorflow::graph::SetDefaultDevice(
++          "/gpu:" + std::to_string(device_id), graph_def);
++    }
++  }
++
 +  tensorflow::RunOptions run_options;
-+  RETURN_IF_TF_ERROR(tensorflow::LoadSavedModel(
-+      session_options, run_options, model_path, saved_model_tags,
-+      bundle.get()));
++  RETURN_IF_TF_ERROR(tensorflow::LoadMetagraphIntoSession(
++      session_options, bundle->meta_graph_def, &bundle->session));
++  RETURN_IF_TF_ERROR(tensorflow::RestoreSession(
++      run_options, bundle->meta_graph_def, model_path, &bundle->session));
 +
 +  // Verify that the bundle has the correct tag
 +  bool found_serve_tag = false;
