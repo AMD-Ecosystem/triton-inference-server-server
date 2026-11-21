@@ -70,15 +70,15 @@ This repository contains ROCm-enabled builds of Triton Inference Server for AMD 
 | Component | Repository | Branch / tag / image |
 |-----------|------------|----------------------|
 | Server (this repo) | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server) | `rocm10.1-plugin-ep-remap-pt-tf-r25.12` |
-| Core | [ROCm/triton-inference-server-core](https://github.com/ROCm/triton-inference-server-core) | `rocm7.2_r25.12` |
-| Backend | [ROCm/triton-inference-server-backend](https://github.com/ROCm/triton-inference-server-backend) | `rocm7.2_r25.12` |
-| Third Party | [ROCm/triton-inference-server-third_party](https://github.com/ROCm/triton-inference-server-third_party) | `rocm7.2_r25.12` |
+| Core | [ROCm/triton-inference-server-core](https://github.com/ROCm/triton-inference-server-core) | `rocm10.2_r26.10` |
+| Backend | [ROCm/triton-inference-server-backend](https://github.com/ROCm/triton-inference-server-backend) | `rocm10.2_r26.10` |
+| Third Party | [ROCm/triton-inference-server-third_party](https://github.com/ROCm/triton-inference-server-third_party) | `rocm10.2_r26.10` |
 | ONNX Runtime Backend | [TedThemistokleous/onnxruntime_backend](https://github.com/TedThemistokleous/onnxruntime_backend) | `pre_verify_10.1` |
 | MIGraphX plugin EP | [ffloresy/onnxruntime-ep-amdgpu](https://github.com/ffloresy/onnxruntime-ep-amdgpu) | `fix-output-name-remap` |
 | MIGraphX (source) | [ROCm/AMDMIGraphX](https://github.com/ROCm/AMDMIGraphX) | `remove_output_concats2` |
-| Python Backend | [ROCm/triton-inference-server-python_backend](https://github.com/ROCm/triton-inference-server-python_backend) | `rocm7.2_r25.12` |
-| Pytorch Backend | [ROCm/triton-inference-server-pytorch_backend](https://github.com/ROCm/triton-inference-server-pytorch_backend) | `rocm7.2_r25.12` |
-| Tensorflow Backend | [ROCm/triton-inference-server-tensorflow_backend](https://github.com/ROCm/triton-inference-server-tensorflow_backend) | `rocm7.14-prev_r24.03` |
+| Python Backend | [ROCm/triton-inference-server-python_backend](https://github.com/ROCm/triton-inference-server-python_backend) | `rocm10.2_r26.10` |
+| Pytorch Backend | [ROCm/triton-inference-server-pytorch_backend](https://github.com/ROCm/triton-inference-server-pytorch_backend) | `rocm10.2_r26.10` |
+| Tensorflow Backend | [AMD-Ecosystem/triton-inference-server-tensorflow_backend](https://github.com/AMD-Ecosystem/triton-inference-server-tensorflow_backend/tree/rocm10.2_r25.07) | `rocm10.2_r25.07` |
 | TensorFlow ROCm image | local Docker image | `localhost/debian12_rocm10.1.0_tensorflow` |
 
 Override the plugin EP with `--migraphx-ep-repo` / `--migraphx-ep-branch` if you

@@ -649,8 +649,8 @@ def backend_cmake_args(images, components, be, install_dir, library_paths):
     core_repo_tag = components["core"]
     backend_repo_tag = components["backend"]
     if be == "tensorflow" and FLAGS.enable_rocm:
-        core_repo_tag = "rocm7.2_r25.12"
-        backend_repo_tag = "rocm7.2_r25.12"
+        core_repo_tag = "rocm10.2_r26.10"
+        backend_repo_tag = "rocm10.2_r26.10"
 
     cargs = args + [
         cmake_backend_arg(be, "CMAKE_BUILD_TYPE", None, cmake_build_type),
@@ -1082,14 +1082,14 @@ def tensorflow_rocm_cmake_args():
         cmake_backend_arg("tensorflow",
             "TRITON_CORE_REPO_TAG",
             None,
-            "rocm7.2_r25.12"
+            "rocm10.2_r26.10"
         )
     )
     cargs.append(
         cmake_backend_arg("tensorflow",
             "TRITON_BACKEND_REPO_TAG",
             None,
-            "rocm7.2_r25.12"
+            "rocm10.2_r26.10"
         )
     )
     cargs.append(
@@ -2880,9 +2880,9 @@ def backend_build(
     elif be == "tensorflow" and FLAGS.enable_rocm:
         cmake_script.gitclone(
             "triton-inference-server-tensorflow_backend", 
-            "rocm7.14-prev_r24.03", 
+            "rocm10.2_r25.07", 
             "tensorflow_backend", 
-            "https://github.com/ROCm"
+            "https://github.com/AMD-Ecosystem"
         )
         cmake_script.mkdir("tensorflow_backend/build")
         cmake_script.cwd("tensorflow_backend/build")
