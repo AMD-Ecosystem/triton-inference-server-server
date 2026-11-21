@@ -2880,9 +2880,9 @@ def backend_build(
     elif be == "tensorflow" and FLAGS.enable_rocm:
         cmake_script.gitclone(
             "triton-inference-server-tensorflow_backend", 
-            "rocm7.14-prev_r24.03", 
+            "rocm10.2_r25.07", 
             "tensorflow_backend", 
-            "https://github.com/ROCm"
+            "https://github.com/AMD-Ecosystem"
         )
         cmake_script.mkdir("tensorflow_backend/build")
         cmake_script.cwd("tensorflow_backend/build")
