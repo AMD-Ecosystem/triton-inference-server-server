@@ -56,8 +56,10 @@ set +o pipefail
 yes "" | TF_NEED_CLANG=0 TF_NEED_ROCM=1 ROCM_PATH=/opt/rocm PYTHON_BIN_PATH=/usr/bin/python3 ./configure
 set -o pipefail
 
+# --config=rocm alone builds CPU-only; rocm_clang_local turns on ROCm.
 bazel build \
   --config=rocm \
+  --config=rocm_clang_local \
   --repo_env=HERMETIC_PYTHON_VERSION="${TF_PYTHON_VERSION}" \
   --repo_env=WHEEL_NAME=tensorflow_rocm \
   --repo_env=TF_ROCM_AMDGPU_TARGETS="${TF_ROCM_AMDGPU_TARGETS}" \
@@ -86,6 +88,9 @@ cd "${TF_WORKDIR}"
 
 "${PY312}" - <<'PY'
 import tensorflow as tf
+
+if not tf.test.is_built_with_rocm():
+    raise SystemExit("ERROR: TensorFlow was built without ROCm")
 
 # Query the list of physical GPU devices
 gpus = tf.config.list_physical_devices("GPU")
