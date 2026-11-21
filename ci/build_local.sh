@@ -13,9 +13,12 @@
 #
 # Environment variable overrides (all optional):
 #   WORK_DIR           - workspace root (overridden by positional arg if given)
-#   TRITON_VERSION     - Triton version string      (default: 2.64.0)
-#   BASE_IMAGE         - ROCm base image            (default: rocm/dev-ubuntu-22.04:7.2-complete)
-#   BUILD_ONNXRUNTIME  - build OnnxRuntime backend  (default: OFF)
+#   TRITON_VERSION     - Triton version string      (default: 2.74.0)
+#   BASE_IMAGE         - Debian 12 + ROCm 10.2 + Python 3.12 base image
+#                         (default: 172.17.0.1:5005/debian12_rocm10.2.0-py312; see
+#                         "Base image" below)
+#   BUILD_ONNXRUNTIME  - build OnnxRuntime backend  (default: OFF; experimental, see
+#                         the ONNX Runtime note in Dockerfile.rocm_ci)
 #   IMAGE_TAG          - local image tag            (default: tritonserver:<TRITON_VERSION>)
 #   BUILD_TARGET       - Docker build target        (default: runtime). Use buildenv to build
 #                         only the build-env image (deps + sources, no build.py); then run a
@@ -23,6 +26,15 @@
 #   SKIP_PREFETCH      - skip the prefetch step     (default: 0)
 #   NO_CACHE           - pass --no-cache to buildx  (default: 0)
 #   PREFETCH_SCRIPT    - path to prefetch_sources.sh (default: same dir as this script)
+#
+# Base image:
+#   BASE_IMAGE must be reachable by the docker-container buildx builder, which
+#   cannot see images that exist only in the local daemon (localhost/...). Build
+#   the base with scripts/build_debian12_rocm_102_py312_base.sh, then publish it to
+#   the local registry that this script already uses for layer caching:
+#     docker run -d --name triton-cache-registry -p 5005:5000 registry:2   # once
+#     docker tag  localhost/debian12_rocm10.2.0-py312 172.17.0.1:5005/debian12_rocm10.2.0-py312
+#     docker push 172.17.0.1:5005/debian12_rocm10.2.0-py312
 #
 # Prerequisites:
 #   - docker buildx (Docker >= 23, or BuildKit plugin installed)
@@ -44,9 +56,8 @@
 #     mkdir -p /path/to/workspace/tritonbuild
 #     docker run -it -v /path/to/workspace/tritonbuild:/tmp/tritonbuild \
 #       triton-buildenv:<TRITON_VERSION> bash
-#   Inside the container, run the same build.py invocation as in Dockerfile.rocm_ci
-#   (including --extra-core-cmake-arg BOOST_ROOT=/root/micromamba). To resume after
-#   a failure, re-run the container with the same volume and run ./cmake_build from
+#   Inside the container, run the same build.py invocation as in Dockerfile.rocm_ci.
+#   To resume after a failure, re-run the container with the same volume and run ./cmake_build from
 #   /tmp/tritonbuild, or run make from the build subdir.
 
 set -euo pipefail
@@ -57,9 +68,9 @@ set -euo pipefail
 
 WORK_DIR="${1:-${WORK_DIR:-$(pwd)/triton-ci-workspace}}"
 
-TRITON_VERSION="${TRITON_VERSION:-2.64.0}"
-BASE_IMAGE="${BASE_IMAGE:-rocm/dev-ubuntu-22.04:7.2-complete}"
-BUILD_ONNXRUNTIME="${BUILD_ONNXRUNTIME:-ON}"
+TRITON_VERSION="${TRITON_VERSION:-2.74.0}"
+BASE_IMAGE="${BASE_IMAGE:-172.17.0.1:5005/debian12_rocm10.2.0-py312}"
+BUILD_ONNXRUNTIME="${BUILD_ONNXRUNTIME:-OFF}"
 BUILD_TARGET="${BUILD_TARGET:-runtime}"
 IMAGE_TAG="${IMAGE_TAG:-tritonserver:${TRITON_VERSION}}"
 SKIP_PREFETCH="${SKIP_PREFETCH:-0}"
@@ -273,9 +284,9 @@ if [[ "${BUILD_TARGET}" == "buildenv" ]]; then
     log "  To run a container and execute build.py manually (mount build dir for persistence):"
     log "    mkdir -p ${WORK_DIR}/tritonbuild"
     log "    docker run -it -v $(realpath "${WORK_DIR}")/tritonbuild:/tmp/tritonbuild ${IMAGE_TAG} bash"
-    log "  Inside the container, run the build.py invocation from Dockerfile.rocm_ci (including"
-    log "  --extra-core-cmake-arg BOOST_ROOT=/root/micromamba). To resume after a failure,"
-    log "  re-run the container with the same volume and run ./cmake_build from /tmp/tritonbuild."
+    log "  Inside the container, run the build.py invocation from Dockerfile.rocm_ci."
+    log "  To resume after a failure, re-run the container with the same volume and run"
+    log "  ./cmake_build from /tmp/tritonbuild."
 else
     log "  Output tar : ${OUTPUT_TAR}"
     if [[ -f "${OUTPUT_TAR}" ]]; then

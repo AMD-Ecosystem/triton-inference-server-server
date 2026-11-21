@@ -40,8 +40,7 @@ fi
 
 export CUDA_VISIBLE_DEVICES=0
 
-TRITON_REPO_ORGANIZATION=${TRITON_REPO_ORGANIZATION:=http://github.com/triton-inference-server}
-TRITON_COMMON_REPO_TAG=${TRITON_COMMON_REPO_TAG:="main"}
+source ../common/util.sh
 
 RET=0
 
@@ -50,7 +49,7 @@ rm -f *.log.*
 # Get the proto files from the common repo
 rm -fr common
 git clone --single-branch --depth=1 -b $TRITON_COMMON_REPO_TAG \
-    ${TRITON_REPO_ORGANIZATION}/common.git
+    $(triton_repo_url common).git
 cp common/protobuf/*.proto java/library/src/main/proto/.
 
 # Compile library
@@ -66,7 +65,6 @@ CLIENT_LOG=`pwd`/client.log
 DATADIR=`pwd`/models
 SERVER=/opt/tritonserver/bin/tritonserver
 SERVER_ARGS="--model-repository=$DATADIR"
-source ../common/util.sh
 
 run_server
 if [ "$SERVER_PID" == "0" ]; then

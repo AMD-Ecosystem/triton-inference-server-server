@@ -1,4 +1,4 @@
-// Copyright 2019-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright 2019-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions
@@ -63,6 +63,15 @@
 #endif  // TRITON_ENABLE_TRACING
 
 namespace triton { namespace server { namespace grpc {
+
+// Reports a gRPC error to STATUS, releases it, and returns from the handler.
+#define RETURN_AND_RESPOND_WITH_ERR(STATUS, ERR) \
+  do {                                           \
+    TRITONSERVER_Error* err__ = (ERR);           \
+    GrpcStatusUtil::Create((STATUS), err__);     \
+    TRITONSERVER_ErrorDelete(err__);             \
+    return;                                      \
+  } while (false)
 
 namespace {
 
@@ -866,10 +875,15 @@ CommonHandler::RegisterModelConfig()
         err = TRITONSERVER_MessageSerializeToJson(
             model_config_message, &buffer, &byte_size);
         if (err == nullptr) {
-          ::google::protobuf::util::JsonStringToMessage(
-              ::google::protobuf::stringpiece_internal::StringPiece(
-                  buffer, (int)byte_size),
-              response->mutable_config());
+          const auto parse_status =
+              ::google::protobuf::util::JsonStringToMessage(
+                  absl::string_view(buffer, byte_size),
+                  response->mutable_config());
+          if (!parse_status.ok()) {
+            err = TRITONSERVER_ErrorNew(
+                TRITONSERVER_ERROR_INTERNAL,
+                std::string(parse_status.message()).c_str());
+          }
         }
         TRITONSERVER_MessageDelete(model_config_message);
       }
@@ -1658,6 +1672,13 @@ CommonHandler::RegisterSystemSharedMemoryStatus()
           inference::SystemSharedMemoryStatusRequest& request,
           inference::SystemSharedMemoryStatusResponse* response,
           ::grpc::Status* status) {
+        // No shared memory manager (e.g. in-process Python frontend).
+        if (shm_manager_ == nullptr) {
+          RETURN_AND_RESPOND_WITH_ERR(
+              status, TRITONSERVER_ErrorNew(
+                          TRITONSERVER_ERROR_UNAVAILABLE,
+                          kSharedMemoryManagerUnavailableErrorStr));
+        }
         triton::common::TritonJson::Value shm_status_json(
             triton::common::TritonJson::ValueType::ARRAY);
         TRITONSERVER_Error* err = shm_manager_->GetStatus(
@@ -1733,9 +1754,22 @@ CommonHandler::RegisterSystemSharedMemoryRegister()
           inference::SystemSharedMemoryRegisterRequest& request,
           inference::SystemSharedMemoryRegisterResponse* response,
           ::grpc::Status* status) {
-        TRITONSERVER_Error* err = shm_manager_->RegisterSystemSharedMemory(
-            request.name(), request.key(), request.offset(),
-            request.byte_size());
+        // No shared memory manager (e.g. in-process Python frontend).
+        if (shm_manager_ == nullptr) {
+          RETURN_AND_RESPOND_WITH_ERR(
+              status, TRITONSERVER_ErrorNew(
+                          TRITONSERVER_ERROR_UNAVAILABLE,
+                          kSharedMemoryManagerUnavailableErrorStr));
+        }
+        TRITONSERVER_Error* err = nullptr;
+        if (!shm_manager_->AllowClientSharedMemory()) {
+          err = TRITONSERVER_ErrorNew(
+              TRITONSERVER_ERROR_UNSUPPORTED, kClientShmDisabledErrorStr);
+        } else {
+          err = shm_manager_->RegisterSystemSharedMemory(
+              request.name(), request.key(), request.offset(),
+              request.byte_size());
+        }
 
         GrpcStatusUtil::Create(status, err);
         TRITONSERVER_ErrorDelete(err);
@@ -1772,8 +1806,18 @@ CommonHandler::RegisterSystemSharedMemoryUnregister()
           inference::SystemSharedMemoryUnregisterRequest& request,
           inference::SystemSharedMemoryUnregisterResponse* response,
           ::grpc::Status* status) {
+        // No shared memory manager (e.g. in-process Python frontend).
+        if (shm_manager_ == nullptr) {
+          RETURN_AND_RESPOND_WITH_ERR(
+              status, TRITONSERVER_ErrorNew(
+                          TRITONSERVER_ERROR_UNAVAILABLE,
+                          kSharedMemoryManagerUnavailableErrorStr));
+        }
         TRITONSERVER_Error* err = nullptr;
-        if (request.name().empty()) {
+        if (!shm_manager_->AllowClientSharedMemory()) {
+          err = TRITONSERVER_ErrorNew(
+              TRITONSERVER_ERROR_UNSUPPORTED, kClientShmDisabledErrorStr);
+        } else if (request.name().empty()) {
           err = shm_manager_->UnregisterAll(TRITONSERVER_MEMORY_CPU);
         } else {
           err =
@@ -1814,6 +1858,13 @@ CommonHandler::RegisterCudaSharedMemoryStatus()
           inference::CudaSharedMemoryStatusRequest& request,
           inference::CudaSharedMemoryStatusResponse* response,
           ::grpc::Status* status) {
+        // No shared memory manager (e.g. in-process Python frontend).
+        if (shm_manager_ == nullptr) {
+          RETURN_AND_RESPOND_WITH_ERR(
+              status, TRITONSERVER_ErrorNew(
+                          TRITONSERVER_ERROR_UNAVAILABLE,
+                          kSharedMemoryManagerUnavailableErrorStr));
+        }
         triton::common::TritonJson::Value shm_status_json(
             triton::common::TritonJson::ValueType::ARRAY);
         TRITONSERVER_Error* err = shm_manager_->GetStatus(
@@ -1882,13 +1933,25 @@ CommonHandler::RegisterCudaSharedMemoryRegister()
           inference::CudaSharedMemoryRegisterRequest& request,
           inference::CudaSharedMemoryRegisterResponse* response,
           ::grpc::Status* status) {
+        // No shared memory manager (e.g. in-process Python frontend).
+        if (shm_manager_ == nullptr) {
+          RETURN_AND_RESPOND_WITH_ERR(
+              status, TRITONSERVER_ErrorNew(
+                          TRITONSERVER_ERROR_UNAVAILABLE,
+                          kSharedMemoryManagerUnavailableErrorStr));
+        }
         TRITONSERVER_Error* err = nullptr;
 #ifdef TRITON_ENABLE_GPU
-        err = shm_manager_->RegisterCUDASharedMemory(
-            request.name(),
-            reinterpret_cast<const cudaIpcMemHandle_t*>(
-                request.raw_handle().c_str()),
-            request.byte_size(), request.device_id());
+        if (!shm_manager_->AllowClientSharedMemory()) {
+          err = TRITONSERVER_ErrorNew(
+              TRITONSERVER_ERROR_UNSUPPORTED, kClientShmDisabledErrorStr);
+        } else {
+          err = shm_manager_->RegisterCUDASharedMemory(
+              request.name(),
+              reinterpret_cast<const cudaIpcMemHandle_t*>(
+                  request.raw_handle().c_str()),
+              request.byte_size(), request.device_id());
+        }
 #else
         err = TRITONSERVER_ErrorNew(
             TRITONSERVER_ERROR_INVALID_ARG,
@@ -1933,8 +1996,18 @@ CommonHandler::RegisterCudaSharedMemoryUnregister()
           inference::CudaSharedMemoryUnregisterRequest& request,
           inference::CudaSharedMemoryUnregisterResponse* response,
           ::grpc::Status* status) {
+        // No shared memory manager (e.g. in-process Python frontend).
+        if (shm_manager_ == nullptr) {
+          RETURN_AND_RESPOND_WITH_ERR(
+              status, TRITONSERVER_ErrorNew(
+                          TRITONSERVER_ERROR_UNAVAILABLE,
+                          kSharedMemoryManagerUnavailableErrorStr));
+        }
         TRITONSERVER_Error* err = nullptr;
-        if (request.name().empty()) {
+        if (!shm_manager_->AllowClientSharedMemory()) {
+          err = TRITONSERVER_ErrorNew(
+              TRITONSERVER_ERROR_UNSUPPORTED, kClientShmDisabledErrorStr);
+        } else if (request.name().empty()) {
           err = shm_manager_->UnregisterAll(TRITONSERVER_MEMORY_GPU);
         } else {
           err =

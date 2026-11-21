@@ -13,8 +13,18 @@ cprofile
 .venv
 **/.venv
 
+# Per-framework scripts emitted by the qa/common model generation drivers
+qa/common/gen.*.sh
+qa/common/gen.*.cmds
+
 # Test exclusions
 qa/L0_openai/openai
 tensorrtllm_models
 tensorrtllm_mistral_models/
 custom_tokenizer
+
+#migraphx cache for ci
+/ci/migraphx_cache
+
+# generated files
+gen.*

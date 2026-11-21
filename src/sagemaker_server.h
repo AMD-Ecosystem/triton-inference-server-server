@@ -1,4 +1,4 @@
-// Copyright 2021-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright 2021-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions
@@ -23,6 +23,7 @@
 // OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 #pragma once
 
 #include <sys/stat.h>
@@ -45,6 +46,7 @@ class SagemakerAPIServer : public HTTPAPIServer {
       triton::server::TraceManager* trace_manager,
       const std::shared_ptr<SharedMemoryManager>& smb_manager,
       const int32_t port, const std::string address, const int thread_cnt,
+      const size_t max_input_size, const RestrictedFeatures& restricted_apis,
       std::unique_ptr<HTTPServer>* sagemaker_server);
 
   class SagemakeInferRequestClass : public InferRequestClass {
@@ -73,10 +75,12 @@ class SagemakerAPIServer : public HTTPAPIServer {
       const std::shared_ptr<TRITONSERVER_Server>& server,
       triton::server::TraceManager* trace_manager,
       const std::shared_ptr<SharedMemoryManager>& shm_manager,
-      const int32_t port, const std::string address, const int thread_cnt)
+      const int32_t port, const std::string address, const int thread_cnt,
+      const size_t max_input_size, const RestrictedFeatures& restricted_apis)
       : HTTPAPIServer(
             server, trace_manager, shm_manager, port, false /* reuse_port */,
-            address, "" /* header_forward_pattern */, thread_cnt),
+            address, "" /* header_forward_pattern */, thread_cnt,
+            max_input_size, restricted_apis),
         ping_regex_(R"(/ping)"), invocations_regex_(R"(/invocations)"),
         models_regex_(R"(/models(?:/)?([^/]+)?(/invoke)?)"),
         model_path_regex_(
@@ -165,8 +169,20 @@ class SagemakerAPIServer : public HTTPAPIServer {
   // variable SAGEMAKER_TRITON_INFERENCE_TYPE and the default value is "infer".
   const std::string inference_type_;
 
-  /* Maintain list of loaded models */
-  std::unordered_map<std::string, std::string> sagemaker_models_list_;
+  /* Information tracked for each loaded MME model, keyed by the model-name
+   * hash from the request URL. */
+  struct SageMakerModelInfo {
+    // Parent path of the registered model repository
+    // (e.g. /opt/ml/models/<hash>). Needed to unregister the repo on unload.
+    const std::string repo_path;
+    // The archive/model name the model was actually loaded under in Triton,
+    // captured from X-Amzn-SageMaker-Target-Model at load time. Invoke and
+    // unload must act on THIS value, never on a header supplied later.
+    const std::string target_model;
+  };
+
+  /* Maintain list of loaded models, keyed by model-name hash */
+  std::unordered_map<std::string, SageMakerModelInfo> sagemaker_models_list_;
 
   /* Mutex to handle concurrent updates */
   std::mutex models_list_mutex_;

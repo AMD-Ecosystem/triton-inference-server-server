@@ -1,0 +1,151 @@
+#
+# Debian 12 + ROCm 7.14.0-prev TensorFlow build/test image (standalone)
+# Builds everything from scratch (no dependency on prebuilt localhost base images).
+#
+
+FROM debian:12
+
+# Prevent apt-get from prompting for input
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Allow pip to install packages system-wide (needed for Debian 12+)
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
+WORKDIR /workspace
+
+# Install baseline system dependencies.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        locales \
+        ca-certificates \
+        wget \
+        gnupg2 \
+        curl \
+        software-properties-common \
+        build-essential \
+        git \
+        pkg-config \
+        unzip \
+        zip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Locale setup for Debian.
+RUN sed -i 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/g' /etc/locale.gen
+RUN echo 'LANG=en_US.UTF-8' > /etc/default/locale
+RUN locale-gen en_US.UTF-8
+RUN update-locale LANG=en_US.UTF-8
+
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+
+# Install Python from Debian 12 (default 3.11) and pip.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-dev \
+        python3-venv && \
+    ln -sf /usr/bin/python3 /usr/bin/python && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3 && \
+    python3 -m pip install --upgrade pip setuptools==69.5.1 wheel && \
+    python3 --version && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install ROCm from nightly multi-arch APT repo.
+# ROCm 7.14.0 RC1 (build #127)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir --parents --mode=0755 /etc/apt/keyrings \
+    && wget https://rocm.prereleases.amd.com/packages/gpg/rocm.gpg -O - \
+    | gpg --dearmor \
+    > /etc/apt/keyrings/amdrocm.gpg
+
+RUN echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/amdrocm.gpg] https://rocm.prereleases.amd.com/packages-multi-arch/debian12 stable main" \
+    > /etc/apt/sources.list.d/rocm.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    amdrocm7.14-gfx942 amdrocm-core-sdk7.14-gfx942  \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/rocm/.info && \
+    src_version="$(ls -1 /opt/rocm/core-*/.info/version /opt/rocm/.info/version 2>/dev/null | head -n 1)" && \
+    [ -n "${src_version}" ] && cp -p "${src_version}" /opt/rocm/.info/version
+
+# Install libevent (kept from baseline image logic).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libevent-2.1-7 \
+        libevent-core-2.1-7 \
+        libevent-pthreads-2.1-7 \
+        libevent-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install common runtime dependencies used by Triton.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libb64-0d \
+        libcurl4-openssl-dev \
+        libre2-9 \
+        libre2-dev \
+        libnuma-dev \
+        libnuma1 \
+        libgoogle-perftools-dev \
+        libjemalloc-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install cmake.
+RUN apt update -q=2 && apt install -y wget && \
+    wget -q https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-linux-x86_64.tar.gz && \
+    tar -zxf cmake-3.31.8-linux-x86_64.tar.gz -C /opt && \
+    rm cmake-3.31.8-linux-x86_64.tar.gz && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/cmake /usr/local/bin/cmake && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/ctest /usr/local/bin/ctest && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/cpack /usr/local/bin/cpack && \
+    cmake --version
+
+# TensorFlow ROCm build-specific prerequisites.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        clang-19 \
+        lld-19 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Bazelisk as bazel.
+RUN curl -fsSL -o /usr/local/bin/bazel \
+      https://github.com/bazelbuild/bazelisk/releases/download/v1.22.0/bazelisk-linux-amd64 && \
+    chmod +x /usr/local/bin/bazel
+
+# Set ROCm environment variables.
+ENV ROCM_PATH=/opt/rocm
+ENV HIP_PATH=/opt/rocm
+ENV PATH=/opt/rocm/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH:-}
+ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
+
+# Copy build-and-test helper script into the image.
+COPY scripts/repro_tensorflow_rocm_build_test.sh /usr/local/bin/repro_tensorflow_rocm_build_test.sh
+COPY patches/tensorflow_tritonapi_build_develop-upstream_adjusted.patch /workspace/patches/tensorflow_tritonapi_build_develop-upstream_adjusted.patch
+RUN chmod +x /usr/local/bin/repro_tensorflow_rocm_build_test.sh
+
+# Sensible defaults; script allows overrides via env vars.
+ENV TF_REPO=https://github.com/ROCm/tensorflow-upstream.git
+ENV TF_BRANCH=develop-upstream
+ENV TF_WORKDIR=/workspace
+ENV TF_PYTHON_VERSION=3.12
+ENV TF_ROCM_AMDGPU_TARGETS=gfx908,gfx90a,gfx942,gfx950,gfx1030,gfx1100,gfx1101,gfx1102,gfx1200,gfx1201
+ENV TF_CLANG_PATH=/usr/lib/llvm-19/bin/clang
+ENV TF_PATCH_FILE=/workspace/patches/tensorflow_tritonapi_build_develop-upstream_adjusted.patch
+
+# Run full TensorFlow ROCm build + GPU test during docker build.
+# Set RUN_TF_REPRO_DURING_BUILD=0 at build time to skip this step.
+ARG RUN_TF_REPRO_DURING_BUILD=1
+RUN if [ "${RUN_TF_REPRO_DURING_BUILD}" = "1" ]; then \
+      /usr/local/bin/repro_tensorflow_rocm_build_test.sh; \
+    else \
+      echo "Skipping TensorFlow repro during docker build"; \
+    fi
+
+CMD ["/bin/bash"]

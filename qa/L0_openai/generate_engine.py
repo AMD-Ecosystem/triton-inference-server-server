@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -32,7 +32,14 @@ from tensorrt_llm.plugin import PluginConfig
 
 
 def generate_model_engine(model: str, engines_path: str):
-    config = BuildConfig(plugin_config=PluginConfig.from_dict({"_gemm_plugin": "auto"}))
+    config = BuildConfig(plugin_config=PluginConfig(gemm_plugin="auto"))
+
+    lora_config = LoraConfig(
+        lora_target_modules=["attn_q", "attn_k", "attn_v"],
+        max_lora_rank=8,
+        max_loras=4,
+        max_cpu_loras=8,
+    )
 
     lora_config = LoraConfig(
         lora_target_modules=["attn_q", "attn_k", "attn_v"],

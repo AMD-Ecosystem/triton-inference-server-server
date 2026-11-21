@@ -1,0 +1,75 @@
+#
+# Debian 12 + ROCm 10.2.0 base with CPython 3.12 beside the distro Python 3.11.
+#
+# vLLM's published ROCm 10 wheels and the tritonserver wheel are cp312, so
+# python3 and pip3 on PATH must be 3.12. Build the parent first:
+#   scripts/build_debian12_rocm_102_base.sh
+# then this layer with scripts/build_debian12_rocm_102_py312_base.sh.
+#
+# The QA client packages below are installed here, once, for every TIS card.
+# The card build scripts no longer install them at run time.
+FROM localhost/debian12_rocm10.2.0
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        wget \
+        ca-certificates \
+        zlib1g-dev \
+        libncurses-dev \
+        libgdbm-dev \
+        libnss3-dev \
+        libssl-dev \
+        libreadline-dev \
+        libffi-dev \
+        libsqlite3-dev \
+        libbz2-dev \
+        liblzma-dev \
+        uuid-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG PYTHON_VERSION=3.12.7
+RUN wget -q "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" \
+    && tar -xzf "Python-${PYTHON_VERSION}.tgz" \
+    && cd "Python-${PYTHON_VERSION}" \
+    && ./configure --prefix=/usr/local --enable-shared --with-ensurepip=install \
+    && make -j"$(nproc)" \
+    && make altinstall \
+    && cd / \
+    && rm -rf "Python-${PYTHON_VERSION}" "Python-${PYTHON_VERSION}.tgz" \
+    && echo /usr/local/lib > /etc/ld.so.conf.d/python312.conf \
+    && ldconfig \
+    && ln -sfn /usr/local/bin/python3.12 /usr/local/bin/python3 \
+    && ln -sfn /usr/local/bin/python3.12 /usr/local/bin/python \
+    && ln -sfn /usr/local/bin/pip3.12 /usr/local/bin/pip3 \
+    && ln -sfn /usr/local/bin/pip3.12 /usr/local/bin/pip \
+    && python3 --version \
+    && python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+
+# python3 is 3.12 here, so these cp312 wheels do not land on Debian's Python 3.11.
+RUN python3 -m pip install -q \
+        "onnx==1.22.0" \
+        "ml_dtypes<=0.5.4" \
+        "tritonclient[http,grpc]" \
+        "geventhttpclient<=2.3.3" \
+        requests \
+        pybind11 \
+        pytest==8.1.1 \
+    && PIP_CONSTRAINT= python3 -m pip install -q \
+        "botocore>=1.43.126,<1.44" \
+        "s3transfer>=0.19,<0.20"
+
+# L0_backend_python checks for virtualenv at test time. Shared by every TIS card.
+RUN python3 -m pip install -q virtualenv
+
+# pgrep (procps) is what L0_backend_python uses to find the stub process.
+# jq is what the QA scripts call. libboost-dev is what the Python card uses
+# to compile shm_monitor. Installing them here keeps the test containers off
+# deb.debian.org, which has been timing out.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        procps \
+        jq \
+        libboost-dev \
+    && rm -rf /var/lib/apt/lists/*

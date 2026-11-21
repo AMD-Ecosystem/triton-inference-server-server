@@ -1,4 +1,4 @@
-# Copyright 2020-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -30,8 +30,8 @@ project(tritonserver LANGUAGES C CXX)
 
 include(CMakeDependentOption)
 
-# Use C++17 standard as Triton's minimum required.
-set(TRITON_MIN_CXX_STANDARD 17 CACHE STRING "The minimum C++ standard which features are requested to build this target.")
+# Use C++20 standard as Triton's minimum required.
+set(TRITON_MIN_CXX_STANDARD 20 CACHE STRING "The minimum C++ standard which features are requested to build this target.")
 
 set(TRITON_VERSION "0.0.0" CACHE STRING "The version of the Triton shared library" )
 
@@ -75,10 +75,10 @@ option(TRITON_ENABLE_ASAN "Build with address sanitizer" OFF)
 # Repo tags
 set(TRITON_REPO_ORGANIZATION "https://github.com/triton-inference-server" CACHE STRING "Git repository to pull from")
 if(${TRITON_ENABLE_ROCM})
-  set(TRITON_THIRD_PARTY_REPO_TAG "rocm7.2_r25.12" CACHE STRING
+  set(TRITON_THIRD_PARTY_REPO_TAG "rocm10.2_r26.10" CACHE STRING
       "Tag for ROCm/triton-inference-server-third_party repo")
-  set(TRITON_CORE_REPO_TAG "rocm7.2_r25.12" CACHE STRING "Tag for ROCm/triton-inference-server-core repo")
-  set(TRITON_BACKEND_REPO_TAG "rocm7.2_r25.12" CACHE STRING "Tag for ROCm/triton-inference-server-backend repo")
+  set(TRITON_CORE_REPO_TAG "rocm10.2_r26.10" CACHE STRING "Tag for ROCm/triton-inference-server-core repo")
+  set(TRITON_BACKEND_REPO_TAG "rocm10.2_r26.10" CACHE STRING "Tag for ROCm/triton-inference-server-backend repo")
 else()
   set(TRITON_THIRD_PARTY_REPO_TAG "main" CACHE STRING
       "Tag for triton-inference-server/third_party repo")
@@ -169,7 +169,12 @@ FetchContent_MakeAvailable(repo-third-party repo-core)
 #
 if(${TRITON_ENABLE_ROCM})
   enable_language(HIP)
-  
+
+  list(APPEND CMAKE_MODULE_PATH "${TRITON_BUILD_ROCM_HOME}/lib/cmake/rocm")
+  find_package(ROCM REQUIRED CONFIG)
+  include(ROCMSetupVersion)
+  rocm_setup_version(VERSION 25.12)
+
   # Read ROCm version
   file(READ "${TRITON_BUILD_ROCM_HOME}/.info/version" ROCM_VERSION_STRING)
   if(ROCM_VERSION_STRING MATCHES "([0-9]+)\\.([0-9]+)\\.([0-9]+)")
@@ -243,22 +248,20 @@ if (OPENSSL_ROOT_DIR)
   set(_CMAKE_ARGS_OPENSSL_ROOT_DIR "-DOPENSSL_ROOT_DIR:PATH=${OPENSSL_ROOT_DIR}")
 endif()
 
-# Location where protobuf-config.cmake will be installed varies by
-# platform
-if (WIN32)
-  set(_FINDPACKAGE_PROTOBUF_CONFIG_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/cmake")
-else()
-  set(_FINDPACKAGE_PROTOBUF_CONFIG_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/${LIB_DIR}/cmake/protobuf")
-endif()
+# If local core/backend/common checkouts are given, propagate them so the
+# triton-server project builds from them instead of fetching from git.
+set(_CMAKE_ARGS_FETCHCONTENT_SOURCE_DIRS "")
+foreach(_repo REPO-CORE REPO-BACKEND REPO-COMMON)
+  if (FETCHCONTENT_SOURCE_DIR_${_repo})
+    list(APPEND _CMAKE_ARGS_FETCHCONTENT_SOURCE_DIRS
+      "-DFETCHCONTENT_SOURCE_DIR_${_repo}:PATH=${FETCHCONTENT_SOURCE_DIR_${_repo}}")
+  endif()
+endforeach()
 
-# Triton with Opentelemetry is not supported on Windows
-# FIXME: add location for Windows, when support is added
-# JIRA DLIS-4786
-if (WIN32)
-  set(_FINDPACKAGE_OPENTELEMETRY_CONFIG_DIR "")
-else()
-  set(_FINDPACKAGE_OPENTELEMETRY_CONFIG_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/opentelemetry-cpp/${LIB_DIR}/cmake/opentelemetry-cpp")
-endif()
+set(_FINDPACKAGE_PROTOBUF_CONFIG_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/${LIB_DIR}/cmake/protobuf")
+set(_FINDPACKAGE_UTF8_RANGE_CONFIG_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/${LIB_DIR}/cmake/utf8_range")
+
+set(_FINDPACKAGE_OPENTELEMETRY_CONFIG_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/opentelemetry-cpp/${LIB_DIR}/cmake/opentelemetry-cpp")
 
 if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(TRITON_INSTALL_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/install)
@@ -279,7 +282,7 @@ endif() # TRITON_ENABLE_HTTP || TRITON_ENABLE_METRICS || TRITON_ENABLE_SAGEMAKER
 if(${TRITON_ENABLE_GRPC})
   set(TRITON_DEPENDS ${TRITON_DEPENDS} grpc)
 endif() # TRITON_ENABLE_GRPC
-if(NOT WIN32 AND ${TRITON_ENABLE_TRACING})
+if(${TRITON_ENABLE_TRACING})
   set(TRITON_DEPENDS ${TRITON_DEPENDS} opentelemetry-cpp)
 endif() # TRITON_ENABLE_TRACING
 if(${TRITON_ENABLE_ROCM})
@@ -295,9 +298,11 @@ ExternalProject_Add(triton-server
   BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/triton-server"
   CMAKE_CACHE_ARGS
     -DProtobuf_DIR:PATH=${_FINDPACKAGE_PROTOBUF_CONFIG_DIR}
+    -Dutf8_range_DIR:PATH=${_FINDPACKAGE_UTF8_RANGE_CONFIG_DIR}
     ${_CMAKE_ARGS_OPENSSL_ROOT_DIR}
     ${_CMAKE_ARGS_CMAKE_TOOLCHAIN_FILE}
     ${_CMAKE_ARGS_VCPKG_TARGET_TRIPLET}
+    ${_CMAKE_ARGS_FETCHCONTENT_SOURCE_DIRS}
     -DGTEST_ROOT:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/googletest
     -DgRPC_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/grpc/lib/cmake/grpc
     -Dc-ares_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/c-ares/${LIB_DIR}/cmake/c-ares
@@ -351,5 +356,6 @@ ExternalProject_Add(triton-server
     -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
     -DCMAKE_INSTALL_PREFIX:PATH=${TRITON_INSTALL_PREFIX}
     -DTRITON_VERSION:STRING=${TRITON_VERSION}
+    -DTRITON_LINUX_DISTRO:STRING=${TRITON_LINUX_DISTRO}
   DEPENDS ${TRITON_DEPENDS}
 )

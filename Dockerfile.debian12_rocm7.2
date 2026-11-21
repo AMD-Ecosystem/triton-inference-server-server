@@ -97,12 +97,12 @@ RUN apt-get update && \
 
 # Install cmake
 RUN apt update -q=2 && apt install -y wget && \
-    wget -q https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.tar.gz && \
-    tar -zxf cmake-3.28.3-linux-x86_64.tar.gz -C /opt && \
-    rm cmake-3.28.3-linux-x86_64.tar.gz && \
-    ln -sf /opt/cmake-3.28.3-linux-x86_64/bin/cmake /usr/local/bin/cmake && \
-    ln -sf /opt/cmake-3.28.3-linux-x86_64/bin/ctest /usr/local/bin/ctest && \
-    ln -sf /opt/cmake-3.28.3-linux-x86_64/bin/cpack /usr/local/bin/cpack && \
+    wget -q https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-linux-x86_64.tar.gz && \
+    tar -zxf cmake-3.31.8-linux-x86_64.tar.gz -C /opt && \
+    rm cmake-3.31.8-linux-x86_64.tar.gz && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/cmake /usr/local/bin/cmake && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/ctest /usr/local/bin/ctest && \
+    ln -sf /opt/cmake-3.31.8-linux-x86_64/bin/cpack /usr/local/bin/cpack && \
     cmake --version 
 
 # Set ROCm environment variables

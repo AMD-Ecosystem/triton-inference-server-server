@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Copyright 2019-2024, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright 2019-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@ sys.path.append("../common")
 import os
 import unittest
 
+import ml_dtypes
 import numpy as np
 import requests as httpreq
 import shm_util
@@ -45,6 +46,7 @@ _tritonserver_ipaddr = os.environ.get("TRITONSERVER_IPADDR", "localhost")
 
 _test_jetson = bool(int(os.environ.get("TEST_JETSON", 0)))
 _test_windows = bool(int(os.environ.get("TEST_WINDOWS", 0)))
+_test_rocm = os.environ.get("TRITON_ENABLE_ROCM", "0") in ("1", "ON")
 
 
 class PythonTest(unittest.TestCase):
@@ -130,7 +132,9 @@ class PythonTest(unittest.TestCase):
         # NOTE: Windows tests are not running in a docker container. Consequently, we
         # do not specify a --shm-size to use a basis to grow. Therefore, this test does
         # not apply for Windows.
-        if not _test_windows:
+        # NOTE: ROCm containers typically run with --ipc=host, removing the 1GB shm
+        # limit that this test relies on to trigger growth errors.
+        if not _test_windows and not _test_rocm:
             # 2 MiBs
             total_byte_size = 2 * 1024 * 1024
             shape = [total_byte_size]
@@ -166,8 +170,8 @@ class PythonTest(unittest.TestCase):
                 self._infer_help(model_name, shape, dtype)
 
     # GPU tensors are not supported on jetson
-    # CUDA Shared memory is not supported on jetson
-    if not _test_jetson and not _test_windows:
+    # CUDA Shared memory is not supported on jetson or ROCm
+    if not _test_jetson and not _test_windows and not _test_rocm:
 
         def test_gpu_tensor_error(self):
             import tritonclient.utils.cuda_shared_memory as cuda_shared_memory
@@ -372,9 +376,7 @@ class PythonTest(unittest.TestCase):
             with httpclient.InferenceServerClient(
                 f"{_tritonserver_ipaddr}:8000"
             ) as client:
-                # NOTE: Client will truncate FP32 to BF16 internally
-                # since numpy has no built-in BF16 representation.
-                np_input = np.ones(shape, dtype=np.float32)
+                np_input = np.ones(shape, dtype=ml_dtypes.bfloat16)
                 inputs = [
                     httpclient.InferInput(
                         "INPUT0", np_input.shape, "BF16"
@@ -390,10 +392,8 @@ class PythonTest(unittest.TestCase):
 
                 np_output = result.as_numpy("OUTPUT0")
                 self.assertIsNotNone(np_output)
-                # BF16 tensors are held in FP32 when converted to numpy due to
-                # lack of native BF16 support in numpy, so verify that.
-                self.assertEqual(np_output.dtype, np.float32)
-                self.assertTrue(np.allclose(np_output, np_input))
+                self.assertEqual(np_output.dtype, np_input.dtype)
+                self.assertTrue(np.array_equal(np_output, np_input))
 
     def test_infer_pytorch(self):
         # FIXME: This model requires torch. Because windows tests are not run in a docker

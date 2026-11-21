@@ -9,14 +9,17 @@
 #
 # Environment variable overrides (all optional):
 #   WORK_DIR           - workspace root (overridden by positional arg if given)
-#   ROCM_TAG           - tag used for all ROCm/* repos     (default: rocm7.2_r25.12)
-#   COMMON_TAG         - tag used for triton-inference-server/common (default: main)
+#   ROCM_TAG           - branch/tag used for all AMD-Ecosystem/* repos
+#                        (default: rocm10.2_r26.10)
+#   COMMON_TAG         - tag used for triton-inference-server/common (default: r26.10)
 #   SERVER_REPO_PATH   - local path to the already-cloned server repo
 #                        (default: ~/devel/triton-inference-server-server)
-#   BUILD_ONNXRUNTIME  - set to "ON" to also prefetch onnxruntime + AMDMIGraphX
-#                        (default: ON)
-#   ONNXRUNTIME_BACKEND_REPO_PATH - local path to patched onnxruntime_backend repo
-#                        (if set, used instead of cloning; for in-tree ORT build)
+#   BUILD_ONNXRUNTIME  - set to "ON" to also prefetch the onnxruntime backend,
+#                        onnxruntime and AMDMIGraphX sources (default: OFF)
+#   ONNXRUNTIME_BACKEND_REPO_PATH - local path to a checked-out onnxruntime_backend
+#                        repo (if set, used instead of cloning)
+#   ORT_REF / MIGX_REF - onnxruntime / AMDMIGraphX refs (default: build.py's
+#                        --ort-branch / --migraphx-branch defaults)
 #
 # After this script completes, WORK_DIR/src/ contains:
 #
@@ -41,7 +44,7 @@
 #   AMDMIGraphX/
 #
 # NOTE on grpc submodules:
-#   The git insteadOf rule in Dockerfile.triton_build redirects the top-level
+#   The git insteadOf rule in Dockerfile.rocm_ci redirects the top-level
 #   grpc.git URL to file:///src/third_party/grpc.  grpc's own .gitmodules still
 #   reference external HTTPS URLs for sub-dependencies (abseil-cpp, protobuf,
 #   re2, boringssl, etc.) which are NOT covered by any insteadOf rule.
@@ -59,12 +62,15 @@ set -euo pipefail
 WORK_DIR="${1:-${WORK_DIR:-$(pwd)/triton-ci-workspace}}"
 SRC_DIR="${WORK_DIR}/src"
 
-ROCM_TAG="${ROCM_TAG:-rocm7.2_r25.12}"
-COMMON_TAG="${COMMON_TAG:-main}"
+ROCM_TAG="${ROCM_TAG:-rocm10.2_r26.10}"
+COMMON_TAG="${COMMON_TAG:-r26.10}"
 SERVER_REPO_PATH="${SERVER_REPO_PATH:-${HOME}/devel/triton-inference-server-server}"
-BUILD_ONNXRUNTIME="${BUILD_ONNXRUNTIME:-ON}"
+BUILD_ONNXRUNTIME="${BUILD_ONNXRUNTIME:-OFF}"
 
-ROCM_ORG="https://github.com/ROCm"
+# Triton component repos (core, backend, third_party, *_backend) live in the
+# AMD-Ecosystem org for the r26.10 line; MIGraphX/onnxruntime stay in ROCm.
+ROCM_ORG="https://github.com/AMD-Ecosystem"
+ROCM_UPSTREAM_ORG="https://github.com/ROCm"
 TRITON_ORG="https://github.com/triton-inference-server"
 
 # ---------------------------------------------------------------------------
@@ -217,10 +223,10 @@ done
 # ---------------------------------------------------------------------------
 # Step 5 (optional): OnnxRuntime backend sources
 # ---------------------------------------------------------------------------
-# Revisions match ci/manifest.yml so prefetch and CI use the same refs.
-# Override with ORT_REF and MIGX_REF if needed (e.g. ORT_REF=add_padded_batch).
-ORT_REF="${ORT_REF:-add_padded_batch}"
-MIGX_REF="${MIGX_REF:-concat_ai}"
+# Defaults match build.py's --ort-branch and --migraphx-branch so prefetch and
+# the build use the same refs. Override with ORT_REF and MIGX_REF if needed.
+ORT_REF="${ORT_REF:-v1.29.0}"
+MIGX_REF="${MIGX_REF:-remove_output_concats2}"
 
 if [[ "${BUILD_ONNXRUNTIME}" == "ON" ]]; then
     log "BUILD_ONNXRUNTIME=ON: prefetching onnxruntime + AMDMIGraphX"
@@ -244,12 +250,12 @@ if [[ "${BUILD_ONNXRUNTIME}" == "ON" ]]; then
 
     clone_at_ref \
         "${SRC_DIR}/onnxruntime" \
-        "${ROCM_ORG}/onnxruntime.git" \
+        "https://github.com/microsoft/onnxruntime.git" \
         "${ORT_REF}"
 
     clone_at_ref \
         "${SRC_DIR}/AMDMIGraphX" \
-        "${ROCM_ORG}/AMDMIGraphX.git" \
+        "${ROCM_UPSTREAM_ORG}/AMDMIGraphX.git" \
         "${MIGX_REF}"
 fi
 
