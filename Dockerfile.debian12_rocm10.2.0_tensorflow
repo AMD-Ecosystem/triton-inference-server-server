@@ -167,4 +167,20 @@ RUN if [ "${RUN_TF_REPRO_DURING_BUILD}" = "1" ]; then \
       echo "Skipping TensorFlow repro during docker build"; \
     fi
 
+# tensorflow_backend's CMake copies libtensorflow_cc.so.2 and
+# libtensorflow_framework.so.2 from TRITON_TENSORFLOW_PYTHON_PATH, which
+# defaults to /usr/local/lib/python3.12/dist-packages/tensorflow. Bazel leaves
+# the wheel's libraries under its external cache (the path has a hash), so
+# copy them to that stable location.
+RUN set -eux; \
+    cd /workspace/tensorflow-upstream; \
+    output_base="$(bazel info output_base)"; \
+    tf_src="${output_base}/external/python_3_12_x86_64-unknown-linux-gnu/lib/python3.12/site-packages/tensorflow"; \
+    test -f "${tf_src}/libtensorflow_cc.so.2"; \
+    test -f "${tf_src}/libtensorflow_framework.so.2"; \
+    dest=/usr/local/lib/python3.12/dist-packages/tensorflow; \
+    mkdir -p "${dest}"; \
+    cp -L "${tf_src}/libtensorflow_cc.so.2" "${tf_src}/libtensorflow_framework.so.2" "${dest}/"; \
+    ls -l "${dest}"
+
 CMD ["/bin/bash"]
