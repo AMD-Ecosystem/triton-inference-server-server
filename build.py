@@ -3486,8 +3486,8 @@ if __name__ == "__main__":
         "--linux-distro",
         type=str,
         required=False,
-        default="ubuntu",
-        help="Linux distro to use for build so far only support onnxruntime backend (e.g. ubuntu, debian).",
+        default=None,
+        help="Linux distro to use for build so far only support onnxruntime backend (e.g. ubuntu, debian). Default: debian for --enable-rocm builds (ROCm 10.2 base), ubuntu otherwise.",
     )
     parser.add_argument(
         "--enable-mali-gpu",
@@ -3828,15 +3828,6 @@ if __name__ == "__main__":
     if FLAGS.docker_build_secret is None:
         FLAGS.docker_build_secret = []
 
-    # Debian 12 is CPython 3.11 and has no CUDA. The default "all" extra
-    # installs cupy-cuda13x, which cannot be installed in this image.
-    if (
-        FLAGS.enable_rocm
-        and FLAGS.linux_distro == "debian"
-        and FLAGS.triton_wheels_dependencies_group == "all"
-    ):
-        FLAGS.triton_wheels_dependencies_group = "test"
-
     FLAGS.boost_url = os.getenv(
         "TRITON_BOOST_URL",
         "https://archives.boost.io/release/1.80.0/source/boost_1_80_0.tar.gz",
@@ -3848,6 +3839,20 @@ if __name__ == "__main__":
     # settings, backends, repo-agents, caches, file systems, endpoints, etc.
     if FLAGS.enable_all:
         enable_all()
+
+    # Resolve the distro after --enable-all, which can turn on ROCm. ROCm
+    # builds default to Debian 12 (ROCm 10.2); non-ROCm builds keep ubuntu.
+    if FLAGS.linux_distro is None:
+        FLAGS.linux_distro = "debian" if FLAGS.enable_rocm else "ubuntu"
+
+    # Debian 12 is CPython 3.11 and has no CUDA. The default "all" extra
+    # installs cupy-cuda13x, which cannot be installed in this image.
+    if (
+        FLAGS.enable_rocm
+        and FLAGS.linux_distro == "debian"
+        and FLAGS.triton_wheels_dependencies_group == "all"
+    ):
+        FLAGS.triton_wheels_dependencies_group = "test"
 
     # When doing a docker build, --build-dir, --install-dir and
     # --cmake-dir must not be set. We will use the build/ subdir
