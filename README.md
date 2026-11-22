@@ -32,19 +32,19 @@
 
 ----
 
-## This branch (`rocm10.1-plugin-ep-remap-pt-tf-r25.12`)
+## This branch (`release/r26.10.amd0`)
 
 This checkout is **not** the stock ROCm 7.2.3 README flow. It is the
-AMD-Ecosystem ROCm 10.1 branch with:
+AMD-Ecosystem ROCm 10.2 release branch with:
 
-- Debian 12 + **ROCm 10.1.0** (ROCm Core SDK) as the default container OS
+- Debian 12 + **ROCm 10.2.0** (ROCm Core SDK) as the default container OS
 - MIGraphX **plugin EP output-name remap** as the default ONNX Runtime EP
-- **PyTorch** and **TensorFlow** backends enabled for that 10.1 path
+- **PyTorch** and **TensorFlow** backends enabled for that 10.2 path
 
 Clone this tree, not `ROCm/triton-inference-server-server` @ `rocm7.2.3_r25.12`:
 
 ```bash
-git clone -b rocm10.1-plugin-ep-remap-pt-tf-r25.12 \
+git clone -b release/r26.10.amd0 \
   https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
 ```
@@ -59,57 +59,59 @@ This repository contains ROCm-enabled builds of Triton Inference Server for AMD 
 
 - **ONNX Runtime Backend** - Done
 - **Python Backend** - Done
-- **vLLM Backend** - Done (ROCm 7.2.3 path; not the default 10.1 Debian image)
+- **vLLM Backend** - Done (ROCm 7.2.3 path; not the default 10.2 Debian image)
 - **PyTorch Backend**  - Done
 - **Tensorflow Backend** - Done
 
-### ROCm 10.1 pins used by this branch
+### ROCm 10.2 pins used by this branch
 
 `build.py --enable-rocm --linux-distro=debian` currently uses:
 
 | Component | Repository | Branch / tag / image |
 |-----------|------------|----------------------|
-| Server (this repo) | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server) | `rocm10.1-plugin-ep-remap-pt-tf-r25.12` |
-| Core | [ROCm/triton-inference-server-core](https://github.com/ROCm/triton-inference-server-core) | `rocm7.2_r25.12` |
-| Backend | [ROCm/triton-inference-server-backend](https://github.com/ROCm/triton-inference-server-backend) | `rocm7.2_r25.12` |
-| Third Party | [ROCm/triton-inference-server-third_party](https://github.com/ROCm/triton-inference-server-third_party) | `rocm7.2_r25.12` |
-| ONNX Runtime Backend | [TedThemistokleous/onnxruntime_backend](https://github.com/TedThemistokleous/onnxruntime_backend) | `pre_verify_10.1` |
-| MIGraphX plugin EP | [ffloresy/onnxruntime-ep-amdgpu](https://github.com/ffloresy/onnxruntime-ep-amdgpu) | `fix-output-name-remap` |
+| Server (this repo) | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server) | `release/r26.10.amd0` |
+| Core | [ROCm/triton-inference-server-core](https://github.com/ROCm/triton-inference-server-core) | `rocm10.2_r26.10` |
+| Backend | [ROCm/triton-inference-server-backend](https://github.com/ROCm/triton-inference-server-backend) | `rocm10.2_r26.10` |
+| Third Party | [ROCm/triton-inference-server-third_party](https://github.com/ROCm/triton-inference-server-third_party) | `rocm10.2_r26.10` |
+| ONNX Runtime Backend | [TedThemistokleous/onnxruntime_backend](https://github.com/TedThemistokleous/onnxruntime_backend) | `pre_verify_10.1` (still the 10.1 pin; ROCm 10.2 pin not yet set) |
+| MIGraphX plugin EP | [ffloresy/onnxruntime-ep-amdgpu](https://github.com/ffloresy/onnxruntime-ep-amdgpu) | `fix-output-name-remap` (still the 10.1 pin; ROCm 10.2 pin not yet set) |
 | MIGraphX (source) | [ROCm/AMDMIGraphX](https://github.com/ROCm/AMDMIGraphX) | `remove_output_concats2` |
 | Python Backend | [ROCm/triton-inference-server-python_backend](https://github.com/ROCm/triton-inference-server-python_backend) | `rocm7.2_r25.12` |
 | Pytorch Backend | [ROCm/triton-inference-server-pytorch_backend](https://github.com/ROCm/triton-inference-server-pytorch_backend) | `rocm7.2_r25.12` |
 | Tensorflow Backend | [AMD-Ecosystem/triton-inference-server-tensorflow_backend](https://github.com/AMD-Ecosystem/triton-inference-server-tensorflow_backend/tree/rocm10.2_r25.07) | `rocm10.2_r25.07` |
-| TensorFlow ROCm image | local Docker image | `localhost/debian12_rocm10.1.0_tensorflow` |
+| TensorFlow ROCm image | local Docker image | `localhost/debian12_rocm10.2.0_tensorflow` |
 
 Override the plugin EP with `--migraphx-ep-repo` / `--migraphx-ep-branch` if you
 need the upstream EP instead of the name-remap fork.
 
-## Build Triton Inference Server (ROCm 10.1, Debian 12) — this branch
+## Build Triton Inference Server (ROCm 10.2, Debian 12) — this branch
 
 #### Prerequisites
 
 - Docker installed and running
-- AMD GPU with ROCm support (images currently install **gfx942** packages: MI300X / MI325X / MI300A)
-- Host ROCm 10.1-compatible driver
+- AMD GPU with ROCm support (images install **gfx942** and **gfx950** packages: MI300X / MI308X / MI325X / MI300A / MI355X)
+- Host ROCm 10.2-compatible driver
 
-ROCm 10.1 uses the **ROCm Core SDK** repo (`stable.repo.amd.com/rocm/core`), not
+ROCm 10.2 uses the **ROCm Core SDK** repo (`stable.repo.amd.com/rocm/core`), not
 the legacy ROCm 7.x `repo.amd.com` layout.
 
-### Step 1 — Debian 12 + ROCm 10.1 base image
+### Step 1 — Debian 12 + ROCm 10.2 base image (CPython 3.12)
 
 ```bash
-bash scripts/build_debian12_rocm_101_base.sh
+bash scripts/build_debian12_rocm_102_py312_base.sh
 ```
 
-This builds `localhost/debian12_rocm10.1.0`, which `build.py --linux-distro=debian` uses as the base.
+This builds `localhost/debian12_rocm10.2.0` (unless `SKIP_BASE=1`) and then
+`localhost/debian12_rocm10.2.0-py312`, which `build.py --linux-distro=debian`
+uses as the base. Python 3.12 is needed by the tritonserver wheel.
 
-### Step 2 — TensorFlow ROCm 10.1 image (required for `--backend=tensorflow`)
+### Step 2 — TensorFlow ROCm 10.2 image (required for `--backend=tensorflow`)
 
 ```bash
-./scripts/build_debian12_rocm_101_tensorflow.sh
+./scripts/build_debian12_rocm_102_tensorflow.sh
 ```
 
-This builds `localhost/debian12_rocm10.1.0_tensorflow`. `build.py` passes that
+This builds `localhost/debian12_rocm10.2.0_tensorflow`. `build.py` passes that
 name to the TensorFlow backend as `TRITON_TENSORFLOW_DOCKER_IMAGE`.
 
 What the image does:
@@ -126,13 +128,8 @@ in this hermetic Bazel sandbox.
 Skip the long TF compile during `docker build` if you only need the image shell:
 
 ```bash
-RUN_TF_REPRO_DURING_BUILD=0 ./scripts/build_debian12_rocm_101_tensorflow.sh
+RUN_TF_REPRO_DURING_BUILD=0 ./scripts/build_debian12_rocm_102_tensorflow.sh
 ```
-
-**GPU target note:** the TensorFlow Dockerfile currently sets
-`TF_ROCM_AMDGPU_TARGETS=gfx942` for a faster validation build. Restore the full
-target list in `Dockerfile.debian12_rocm10.1.0_tensorflow` if you need other
-architectures.
 
 ### Step 3 — build `tritonserver`
 
@@ -156,13 +153,13 @@ python3 build.py \
 
 **Build options explained:**
 - `--enable-rocm`: Enable ROCm support
-- `--linux-distro=debian`: Use `localhost/debian12_rocm10.1.0`
+- `--linux-distro=debian`: Use `localhost/debian12_rocm10.2.0-py312`
 - `--backend=onnxruntime`: ONNX Runtime + MIGraphX plugin EP (`fix-output-name-remap` by default)
 - `--backend=python`: Python backend
 - `--backend=pytorch`: PyTorch backend
 - `--backend=tensorflow`: TensorFlow backend (needs Step 2)
 
-Do not add `--backend=vllm` on this 10.1 path unless you have also built a
+Do not add `--backend=vllm` on this 10.2 path unless you have also built a
 matching vLLM base image. The in-tree vLLM base scripts are still ROCm 7.2.
 
 ## Run Triton Server
