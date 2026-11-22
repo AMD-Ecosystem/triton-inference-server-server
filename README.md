@@ -76,8 +76,8 @@ This repository contains ROCm-enabled builds of Triton Inference Server for AMD 
 | ONNX Runtime Backend | [TedThemistokleous/onnxruntime_backend](https://github.com/TedThemistokleous/onnxruntime_backend) | `pre_verify_10.1` (still the 10.1 pin; ROCm 10.2 pin not yet set) |
 | MIGraphX plugin EP | [ffloresy/onnxruntime-ep-amdgpu](https://github.com/ffloresy/onnxruntime-ep-amdgpu) | `fix-output-name-remap` (still the 10.1 pin; ROCm 10.2 pin not yet set) |
 | MIGraphX (source) | [ROCm/AMDMIGraphX](https://github.com/ROCm/AMDMIGraphX) | `remove_output_concats2` |
-| Python Backend | [ROCm/triton-inference-server-python_backend](https://github.com/ROCm/triton-inference-server-python_backend) | `rocm7.2_r25.12` |
-| Pytorch Backend | [ROCm/triton-inference-server-pytorch_backend](https://github.com/ROCm/triton-inference-server-pytorch_backend) | `rocm7.2_r25.12` |
+| Python Backend | [ROCm/triton-inference-server-python_backend](https://github.com/ROCm/triton-inference-server-python_backend) | `rocm10.2_r26.10` |
+| Pytorch Backend | [ROCm/triton-inference-server-pytorch_backend](https://github.com/ROCm/triton-inference-server-pytorch_backend) | `rocm10.2_r26.10` |
 | Tensorflow Backend | [AMD-Ecosystem/triton-inference-server-tensorflow_backend](https://github.com/AMD-Ecosystem/triton-inference-server-tensorflow_backend/tree/rocm10.2_r25.07) | `rocm10.2_r25.07` |
 | TensorFlow ROCm image | local Docker image | `localhost/debian12_rocm10.2.0_tensorflow` |
 
