@@ -73,7 +73,7 @@ This repository contains ROCm-enabled builds of Triton Inference Server for AMD 
 | Core | [ROCm/triton-inference-server-core](https://github.com/ROCm/triton-inference-server-core) | `rocm10.2_r26.10` |
 | Backend | [ROCm/triton-inference-server-backend](https://github.com/ROCm/triton-inference-server-backend) | `rocm10.2_r26.10` |
 | Third Party | [ROCm/triton-inference-server-third_party](https://github.com/ROCm/triton-inference-server-third_party) | `rocm10.2_r26.10` |
-| ONNX Runtime Backend | [TedThemistokleous/onnxruntime_backend](https://github.com/TedThemistokleous/onnxruntime_backend) | `pre_verify_10.1` (still the 10.1 pin; ROCm 10.2 pin not yet set) |
+| ONNX Runtime Backend | [AMD-Ecosystem/triton-inference-server-onnxruntime_backend](https://github.com/AMD-Ecosystem/triton-inference-server-onnxruntime_backend) | `rocm10.2_r26.10` |
 | MIGraphX plugin EP | [ffloresy/onnxruntime-ep-amdgpu](https://github.com/ffloresy/onnxruntime-ep-amdgpu) | `fix-output-name-remap` (still the 10.1 pin; ROCm 10.2 pin not yet set) |
 | MIGraphX (source) | [ROCm/AMDMIGraphX](https://github.com/ROCm/AMDMIGraphX) | `remove_output_concats2` |
 | Python Backend | [ROCm/triton-inference-server-python_backend](https://github.com/ROCm/triton-inference-server-python_backend) | `rocm10.2_r26.10` |
