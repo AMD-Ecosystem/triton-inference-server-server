@@ -62,7 +62,7 @@ CLONE_MAX_RETRIES=3
 clone_ret=1
 for clone_attempt in $(seq 1 ${CLONE_MAX_RETRIES}); do
     rm -rf python_backend
-    if git clone ${TRITON_REPO_ORGANIZATION}/python_backend -b $PYTHON_BACKEND_REPO_TAG; then
+    if git clone $(triton_repo_url python_backend) -b $PYTHON_BACKEND_REPO_TAG; then
         clone_ret=0
         break
     fi

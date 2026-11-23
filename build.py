@@ -3487,7 +3487,7 @@ if __name__ == "__main__":
         type=str,
         required=False,
         default=None,
-        help="Linux distro to use for build so far only support onnxruntime backend (e.g. ubuntu, debian). Default: debian for --enable-rocm builds (ROCm 10.2 base), ubuntu otherwise.",
+        help="Linux distro to use for the build (e.g. ubuntu, debian). Default: debian when --enable-rocm is set, ubuntu otherwise. --enable-rocm supports only debian.",
     )
     parser.add_argument(
         "--enable-mali-gpu",
@@ -3844,6 +3844,14 @@ if __name__ == "__main__":
     # builds default to Debian 12 (ROCm 10.2); non-ROCm builds keep ubuntu.
     if FLAGS.linux_distro is None:
         FLAGS.linux_distro = "debian" if FLAGS.enable_rocm else "ubuntu"
+
+    # ROCm 10.2 is Debian 12 only. The Ubuntu 24.04 ROCm 7.2.x path has been
+    # removed from this branch, so fail early instead of building it.
+    if FLAGS.enable_rocm and FLAGS.linux_distro != "debian":
+        raise Exception(
+            "ROCm builds on this branch support only --linux-distro=debian "
+            f"(ROCm 10.2, Debian 12); got --linux-distro={FLAGS.linux_distro}"
+        )
 
     # Debian 12 is CPython 3.11 and has no CUDA. The default "all" extra
     # installs cupy-cuda13x, which cannot be installed in this image.
