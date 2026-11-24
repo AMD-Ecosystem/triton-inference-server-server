@@ -2599,9 +2599,9 @@ def backend_build(
             # original branch: rocm10.1_changes
             cmake_script.gitclone(
                 "onnxruntime_backend",
-                "pre_verify_10.1",
+                "fix-migraphx-persistent-host-iobinding",
                 be,
-                "https://github.com/TedThemistokleous/",
+                "https://github.com/ffloresy/",
             )
         cmake_script.comment(
             "Patch ONNX Runtime ROCm backend templates so MIGraphX deb install pulls required ROCm deps"
