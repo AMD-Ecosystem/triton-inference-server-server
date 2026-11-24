@@ -1854,6 +1854,13 @@ RUN printf '%s\\n' \\
 ENV LD_LIBRARY_PATH /opt/hpcx/ucc/lib/:/opt/hpcx/ucx/lib/:${LD_LIBRARY_PATH}
 """
 
+    if enable_rocm and "tensorflow" in backends and FLAGS.linux_distro == "debian":
+        # libtriton_tensorflow.so needs librocm_sysdeps_*.so with no RUNPATH to
+        # them; without this they only resolve if libtensorflow_framework loads first.
+        df += """
+RUN echo /opt/rocm/lib/rocm_sysdeps/lib > /etc/ld.so.conf.d/rocm-sysdeps.conf && ldconfig
+"""
+
     backend_dependencies = ""
     # libgomp1 is needed by both onnxruntime and pytorch backends
     if ("onnxruntime" in backends) or ("pytorch" in backends):
@@ -2092,6 +2099,9 @@ LABEL com.nvidia.build.ref={}
 """.format(
         argmap["NVIDIA_BUILD_ID"], argmap["NVIDIA_BUILD_ID"], argmap["NVIDIA_BUILD_REF"]
     )
+    if enable_rocm:
+        for name, rev in rocm_source_revs():
+            df += "LABEL com.amd.build.source.{}={}\n".format(name, rev)
     return df
 
 
@@ -2223,9 +2233,16 @@ def create_build_dockerfiles(
     # image built on top of it, such as the QA image.
     inference_image = images.get("inference")
 
+    build_sha, build_id = FLAGS.build_sha, FLAGS.build_id
+    if FLAGS.enable_rocm:
+        if build_sha is None:
+            build_sha = git_rev(THIS_SCRIPT_DIR)
+        if build_id is None:
+            build_id = git_rev(THIS_SCRIPT_DIR, describe=True)
+
     dockerfileargmap = {
-        "NVIDIA_BUILD_REF": "" if FLAGS.build_sha is None else FLAGS.build_sha,
-        "NVIDIA_BUILD_ID": "<unknown>" if FLAGS.build_id is None else FLAGS.build_id,
+        "NVIDIA_BUILD_REF": "" if build_sha is None else build_sha,
+        "NVIDIA_BUILD_ID": "<unknown>" if build_id is None else build_id,
         "TRITON_VERSION": FLAGS.version,
         "TRITON_CONTAINER_VERSION": FLAGS.container_version,
         "BASE_IMAGE": base_image,
@@ -2750,6 +2767,47 @@ def rocm_local_src_bind_mounts():
         if os.path.isdir(src):
             mounts.append((os.path.abspath(src), dest))
     return mounts
+
+
+def git_rev(path, describe=False):
+    """Commit of the checkout at path, suffixed -dirty for uncommitted edits.
+
+    describe=True prefers a tag (e.g. v26.10.amd0). Returns None when path is
+    not a git checkout, e.g. a source copy made without .git.
+    """
+    if describe:
+        cmd = ["git", "-C", path, "describe", "--tags", "--always", "--dirty", "--abbrev=12"]
+    else:
+        cmd = ["git", "-C", path, "rev-parse", "--short=12", "HEAD"]
+    try:
+        rev = subprocess.run(
+            cmd, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        if not describe:
+            status = subprocess.run(
+                ["git", "-C", path, "status", "--porcelain", "--untracked-files=no"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            if status.strip():
+                rev += "-dirty"
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return rev or None
+
+
+def rocm_source_revs():
+    """(name, commit) for the server and every local checkout mounted into the build."""
+    revs = []
+    server = git_rev(THIS_SCRIPT_DIR)
+    if server:
+        revs.append(("server", server))
+    for src, dest in rocm_local_src_bind_mounts():
+        rev = git_rev(src)
+        if rev:
+            revs.append((os.path.basename(dest), rev))
+    return revs
 
 
 def rocm_use_local_tree(cmake_script, dest_name, mount_dest):
