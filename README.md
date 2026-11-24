@@ -32,7 +32,7 @@
 
 ----
 
-## This branch (`rocm10.2_r26.10`)
+## This branch (`release/r26.10.amd0`)
 
 This branch is the AMD-Ecosystem ROCm 10.2 build, targeting Debian 12, with:
 
@@ -41,7 +41,7 @@ This branch is the AMD-Ecosystem ROCm 10.2 build, targeting Debian 12, with:
 - **PyTorch** and **TensorFlow** backends enabled for that 10.2 path
 
 ```bash
-git clone -b rocm10.2_r26.10 \
+git clone -b release/r26.10.amd0 \
   https://github.com/AMD-Ecosystem/triton-inference-server-server.git
 cd triton-inference-server-server
 ```
@@ -76,7 +76,7 @@ TensorFlow backend, which is based on r25.07.
 
 | Component | Repository | Branch / tag / image |
 |-----------|------------|----------------------|
-| Server (this repo) | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server) | `rocm10.2_r26.10` |
+| Server (this repo) | [AMD-Ecosystem/triton-inference-server-server](https://github.com/AMD-Ecosystem/triton-inference-server-server) | `release/r26.10.amd0` |
 | Core | [ROCm/triton-inference-server-core](https://github.com/ROCm/triton-inference-server-core) | `rocm10.2_r26.10` |
 | Backend | [ROCm/triton-inference-server-backend](https://github.com/ROCm/triton-inference-server-backend) | `rocm10.2_r26.10` |
 | Third Party | [ROCm/triton-inference-server-third_party](https://github.com/ROCm/triton-inference-server-third_party) | `rocm10.2_r26.10` |
