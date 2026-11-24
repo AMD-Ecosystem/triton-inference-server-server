@@ -1854,6 +1854,13 @@ RUN printf '%s\\n' \\
 ENV LD_LIBRARY_PATH /opt/hpcx/ucc/lib/:/opt/hpcx/ucx/lib/:${LD_LIBRARY_PATH}
 """
 
+    if enable_rocm and "tensorflow" in backends and FLAGS.linux_distro == "debian":
+        # libtriton_tensorflow.so needs librocm_sysdeps_*.so with no RUNPATH to
+        # them; without this they only resolve if libtensorflow_framework loads first.
+        df += """
+RUN echo /opt/rocm/lib/rocm_sysdeps/lib > /etc/ld.so.conf.d/rocm-sysdeps.conf && ldconfig
+"""
+
     backend_dependencies = ""
     # libgomp1 is needed by both onnxruntime and pytorch backends
     if ("onnxruntime" in backends) or ("pytorch" in backends):
@@ -2092,6 +2099,18 @@ LABEL com.nvidia.build.ref={}
 """.format(
         argmap["NVIDIA_BUILD_ID"], argmap["NVIDIA_BUILD_ID"], argmap["NVIDIA_BUILD_REF"]
     )
+    if enable_rocm:
+        for name, rev in rocm_source_revs():
+            df += "LABEL com.amd.build.source.{}={}\n".format(name, rev)
+    if getattr(FLAGS, "enable_coverage", False):
+        # process_startup() is a no-op unless COVERAGE_PROCESS_START is set, so
+        # Python backend stubs only record coverage when a test run asks for it.
+        df += """
+RUN python3 -m pip install --no-cache-dir coverage \\
+    && echo "import coverage; coverage.process_startup()" \\
+       > "$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/coverage_startup.pth"
+LABEL com.amd.build.coverage=1
+"""
     return df
 
 
@@ -2223,9 +2242,16 @@ def create_build_dockerfiles(
     # image built on top of it, such as the QA image.
     inference_image = images.get("inference")
 
+    build_sha, build_id = FLAGS.build_sha, FLAGS.build_id
+    if FLAGS.enable_rocm:
+        if build_sha is None:
+            build_sha = git_rev(THIS_SCRIPT_DIR)
+        if build_id is None:
+            build_id = git_rev(THIS_SCRIPT_DIR, describe=True)
+
     dockerfileargmap = {
-        "NVIDIA_BUILD_REF": "" if FLAGS.build_sha is None else FLAGS.build_sha,
-        "NVIDIA_BUILD_ID": "<unknown>" if FLAGS.build_id is None else FLAGS.build_id,
+        "NVIDIA_BUILD_REF": "" if build_sha is None else build_sha,
+        "NVIDIA_BUILD_ID": "<unknown>" if build_id is None else build_id,
         "TRITON_VERSION": FLAGS.version,
         "TRITON_CONTAINER_VERSION": FLAGS.container_version,
         "BASE_IMAGE": base_image,
@@ -2752,6 +2778,47 @@ def rocm_local_src_bind_mounts():
     return mounts
 
 
+def git_rev(path, describe=False):
+    """Commit of the checkout at path, suffixed -dirty for uncommitted edits.
+
+    describe=True prefers a tag (e.g. v26.10.amd0). Returns None when path is
+    not a git checkout, e.g. a source copy made without .git.
+    """
+    if describe:
+        cmd = ["git", "-C", path, "describe", "--tags", "--always", "--dirty", "--abbrev=12"]
+    else:
+        cmd = ["git", "-C", path, "rev-parse", "--short=12", "HEAD"]
+    try:
+        rev = subprocess.run(
+            cmd, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        if not describe:
+            status = subprocess.run(
+                ["git", "-C", path, "status", "--porcelain", "--untracked-files=no"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            if status.strip():
+                rev += "-dirty"
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return rev or None
+
+
+def rocm_source_revs():
+    """(name, commit) for the server and every local checkout mounted into the build."""
+    revs = []
+    server = git_rev(THIS_SCRIPT_DIR)
+    if server:
+        revs.append(("server", server))
+    for src, dest in rocm_local_src_bind_mounts():
+        rev = git_rev(src)
+        if rev:
+            revs.append((os.path.basename(dest), rev))
+    return revs
+
+
 def rocm_use_local_tree(cmake_script, dest_name, mount_dest):
     """Copy a bind-mounted backend tree into the container build directory."""
     cmake_script.comment(f"Using bind-mounted sources from {mount_dest}")
@@ -3182,6 +3249,15 @@ def cibase_build(
     cmake_script.mkdir(os.path.join(ci_dir, "tritonbuild"))
     for be in ("identity", "python"):
         if be in backends:
+            if FLAGS.enable_coverage:
+                # Coverage reports need the .gcno notes next to the objects,
+                # so keep this build tree outside the CI copy.
+                kept = os.path.join(build_dir, "coverage-notes", be)
+                cmake_script.rmdir(kept)
+                cmake_script.mkdir(os.path.dirname(kept))
+                cmake_script.cmd(
+                    "mv {} {}".format(os.path.join(build_dir, be, "build"), kept)
+                )
             cmake_script.rmdir(os.path.join(build_dir, be, "build"))
             cmake_script.rmdir(os.path.join(build_dir, be, "install"))
             cmake_script.cpdir(
@@ -3331,6 +3407,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--build-sha", type=str, required=False, help="SHA associated with the build."
+    )
+    parser.add_argument(
+        "--enable-coverage",
+        action="store_true",
+        required=False,
+        help="Build core and backends with gcc --coverage and add coverage.py to the image. "
+        "The image is labeled com.amd.build.coverage=1 and is for measurement only, not release.",
     )
     parser.add_argument(
         "--build-dir",
@@ -3487,7 +3570,7 @@ if __name__ == "__main__":
         type=str,
         required=False,
         default=None,
-        help="Linux distro to use for build so far only support onnxruntime backend (e.g. ubuntu, debian). Default: debian for --enable-rocm builds (ROCm 10.2 base), ubuntu otherwise.",
+        help="Linux distro to use for the build (e.g. ubuntu, debian). Default: debian when --enable-rocm is set, ubuntu otherwise. --enable-rocm supports only debian.",
     )
     parser.add_argument(
         "--enable-mali-gpu",
@@ -3845,6 +3928,14 @@ if __name__ == "__main__":
     if FLAGS.linux_distro is None:
         FLAGS.linux_distro = "debian" if FLAGS.enable_rocm else "ubuntu"
 
+    # ROCm 10.2 is Debian 12 only. The Ubuntu 24.04 ROCm 7.2.x path has been
+    # removed from this branch, so fail early instead of building it.
+    if FLAGS.enable_rocm and FLAGS.linux_distro != "debian":
+        raise Exception(
+            "ROCm builds on this branch support only --linux-distro=debian "
+            f"(ROCm 10.2, Debian 12); got --linux-distro={FLAGS.linux_distro}"
+        )
+
     # Debian 12 is CPython 3.11 and has no CUDA. The default "all" extra
     # installs cupy-cuda13x, which cannot be installed in this image.
     if (
@@ -4101,6 +4192,15 @@ if __name__ == "__main__":
                 log(msg)
         except build_presets.BuildPresetError as e:
             fail(str(e))
+
+    if FLAGS.enable_coverage:
+        coverage_flags = [EXTRA_CORE_CMAKE_FLAGS]
+        for be in backends:
+            coverage_flags.append(EXTRA_BACKEND_CMAKE_FLAGS.setdefault(be, {}))
+        for flags in coverage_flags:
+            for name in ("CMAKE_C_FLAGS", "CMAKE_CXX_FLAGS"):
+                flags[name] = (flags.get(name, "") + " --coverage").strip()
+        log("coverage: core and backends built with --coverage")
 
     # Initialize map of common components and repo-tag for each.
     # ROCm builds use ROCm org repos and tags (triton-inference-server-core, triton-inference-server-backend, triton-inference-server-third_party).

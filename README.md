@@ -34,14 +34,11 @@
 
 ## This branch (`release/r26.10.amd0`)
 
-This checkout is **not** the stock ROCm 7.2.3 README flow. It is the
-AMD-Ecosystem ROCm 10.2 release branch with:
+This branch is the AMD-Ecosystem ROCm 10.2 release, targeting Debian 12, with:
 
 - Debian 12 + **ROCm 10.2.0** (ROCm Core SDK) as the default container OS
 - MIGraphX **plugin EP output-name remap** as the default ONNX Runtime EP
 - **PyTorch** and **TensorFlow** backends enabled for that 10.2 path
-
-Clone this tree, not `ROCm/triton-inference-server-server` @ `rocm7.2.3_r25.12`:
 
 ```bash
 git clone -b release/r26.10.amd0 \
@@ -49,9 +46,11 @@ git clone -b release/r26.10.amd0 \
 cd triton-inference-server-server
 ```
 
-The Ubuntu 24.04 / ROCm 7.2.3 instructions later in this file are leftover from
-the upstream README. They still work from the scripts in-tree, but they are
-**not** what `build.py` uses by default on Debian.
+ROCm builds on this branch target **Debian 12 only**. `build.py --enable-rocm`
+rejects `--linux-distro=ubuntu`. The Ubuntu 24.04 ROCm 7.2.x Dockerfiles and base
+scripts (`Dockerfile.ubuntu24.04_rocm7.2*`, `scripts/build_ubuntu24.04_rocm_72*_base.sh`)
+are kept in this tree for reference only; `build.py` does not use them on this branch.
+The ROCm 7.2.3 release is also on its own branch, `rocm7.2.3_r25.12`.
 
 ## ROCm Support
 
@@ -59,11 +58,19 @@ This repository contains ROCm-enabled builds of Triton Inference Server for AMD 
 
 - **ONNX Runtime Backend** - Done
 - **Python Backend** - Done
-- **vLLM Backend** - Done (ROCm 7.2.3 path; not the default 10.2 Debian image)
+- **vLLM Backend** - Done on the ROCm 7.2.3 release (`rocm7.2.3_r25.12`); not part of the default ROCm 10.2 Debian 12 build (see the note after the build command)
 - **PyTorch Backend**  - Done
 - **Tensorflow Backend** - Done
 
 ### ROCm 10.2 pins used by this branch
+
+The components below are based on **Triton Inference Server r26.10** (v2.74.0), except the
+TensorFlow backend, which is based on r25.07.
+
+> **Note**: These repositories contain ROCm-enabled source code. The remaining repositories
+> used to build the Triton Server artifacts, which need no ROCm enablement, are used as-is
+> from the Triton Inference Server GitHub organization
+> (https://github.com/triton-inference-server).
 
 `build.py --enable-rocm --linux-distro=debian` currently uses:
 
@@ -159,8 +166,11 @@ python3 build.py \
 - `--backend=pytorch`: PyTorch backend
 - `--backend=tensorflow`: TensorFlow backend (needs Step 2)
 
-Do not add `--backend=vllm` on this 10.2 path unless you have also built a
-matching vLLM base image. The in-tree vLLM base scripts are still ROCm 7.2.
+`--backend=vllm` is not part of the default ROCm 10.2 build above, and these
+instructions do not cover it. `build.py` can install a pinned ROCm vLLM wheel
+(`vllm==0.34.0+rocm100`) into the Debian image when `--backend=vllm` is passed, but
+that path is not part of the flow documented here. The in-tree vLLM base scripts
+(`scripts/build_debian12_rocm_72_vllm_base.sh`) are still ROCm 7.2.
 
 ## Run Triton Server
 
@@ -226,25 +236,12 @@ perf_analyzer -m <model_name>  --input-data=<your input data file>
 
 ---
 
-## Upstream leftover: Ubuntu 24.04 / Debian 12 with ROCm 7.2.3
+## Legacy: Debian 12 with ROCm 7.2.3
 
-These scripts are still in the tree, but they are **not** this branch’s default.
-They clone/build the older ROCm 7.2.3 layout (`localhost/ubuntu24.04_rocm7.2.3`
-or `localhost/debian12_rocm7.2.3`).
-
-### On Ubuntu 24.04 (ROCm 7.2.3)
-
-```bash
-bash scripts/build_ubuntu24.04_rocm_723_base.sh
-python3 build.py \
-  --no-container-pull \
-  --enable-logging --enable-stats --enable-tracing \
-  --enable-rocm --enable-metrics --verbose \
-  --endpoint=grpc --endpoint=http \
-  --backend=onnxruntime --backend=python \
-  --backend=vllm --backend=pytorch --backend=tensorflow \
-  --linux-distro=ubuntu
-```
+These ROCm 7.2.3 scripts are kept in this branch for reference. They are **not**
+this branch's default. They build the ROCm 7.2.3 layout (`localhost/debian12_rocm7.2.3`).
+For the full ROCm 7.2.3 release, including Ubuntu 24.04 builds that `build.py` supports,
+use `rocm7.2.3_r25.12`.
 
 ### On Debian 12 (ROCm 7.2.3)
 
