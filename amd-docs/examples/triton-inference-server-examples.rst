@@ -124,7 +124,7 @@ This example shows how to deploy and run a simple ONNX model using Triton Infere
    .. code-block:: bash
 
       # Pull the ROCm-enabled Triton Server image
-      docker pull rocm/tritoninferenceserver:tritoninferenceserver-25.12.amd1_rocm7.2_ubuntu24.04_py3.12
+      docker pull rocm/tritoninferenceserver:tritoninferenceserver-26.10.amd0_rocm10.2_debian12_py3.12
 
       # Create a host directory for MIGraphX compilation cache
       mkdir -p $PWD/migraphx_cache
@@ -141,7 +141,7 @@ This example shows how to deploy and run a simple ONNX model using Triton Infere
         -e ORT_MIGRAPHX_CACHE_PATH=/migraphx_cache \
         -v $PWD/model_repository:/models \
         -v $PWD/migraphx_cache:/migraphx_cache \
-        rocm/tritoninferenceserver:tritoninferenceserver-25.12.amd1_rocm7.2_ubuntu24.04_py3.12 \
+        rocm/tritoninferenceserver:tritoninferenceserver-26.10.amd0_rocm10.2_debian12_py3.12 \
         tritonserver --model-repository=/models --exit-on-error=false
 
    Keep this terminal running. You should see Triton load the ``dummy_migraphx_onnx`` model and report that the model is ready.

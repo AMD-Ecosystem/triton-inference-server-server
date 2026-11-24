@@ -39,7 +39,7 @@ ROCm, and all other requirements.
 
    .. code-block:: bash
 
-      docker pull rocm/tritoninferenceserver:tritoninferenceserver-25.12.amd1_rocm7.2_ubuntu24.04_py3.12
+      docker pull rocm/tritoninferenceserver:tritoninferenceserver-26.10.amd0_rocm10.2_debian12_py3.12
 
 2. Start a Docker container using the image.
 
@@ -59,7 +59,7 @@ ROCm, and all other requirements.
       -e ORT_MIGRAPHX_CACHE_PATH=/migraphx_cache \
       -v /path/to/your/model_repository/on/host:/models \
       -v /path/to/your/migraphx_cache_save_dir/on/host:/migraphx_cache \
-      tritoninferenceserver:tritoninferenceserver-25.12.amd1_rocm7.2_ubuntu24.04_py3.12 \
+      tritoninferenceserver:tritoninferenceserver-26.10.amd0_rocm10.2_debian12_py3.12 \
       tritonserver --model-repository=/models --exit-on-error=false
 
 3. The prebuilt image contains the Triton Server executable, required shared libraries, backends, and repository agents in the following locations:
