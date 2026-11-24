@@ -2102,6 +2102,15 @@ LABEL com.nvidia.build.ref={}
     if enable_rocm:
         for name, rev in rocm_source_revs():
             df += "LABEL com.amd.build.source.{}={}\n".format(name, rev)
+    if getattr(FLAGS, "enable_coverage", False):
+        # process_startup() is a no-op unless COVERAGE_PROCESS_START is set, so
+        # Python backend stubs only record coverage when a test run asks for it.
+        df += """
+RUN python3 -m pip install --no-cache-dir coverage \\
+    && echo "import coverage; coverage.process_startup()" \\
+       > "$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/coverage_startup.pth"
+LABEL com.amd.build.coverage=1
+"""
     return df
 
 
@@ -3240,6 +3249,15 @@ def cibase_build(
     cmake_script.mkdir(os.path.join(ci_dir, "tritonbuild"))
     for be in ("identity", "python"):
         if be in backends:
+            if FLAGS.enable_coverage:
+                # Coverage reports need the .gcno notes next to the objects,
+                # so keep this build tree outside the CI copy.
+                kept = os.path.join(build_dir, "coverage-notes", be)
+                cmake_script.rmdir(kept)
+                cmake_script.mkdir(os.path.dirname(kept))
+                cmake_script.cmd(
+                    "mv {} {}".format(os.path.join(build_dir, be, "build"), kept)
+                )
             cmake_script.rmdir(os.path.join(build_dir, be, "build"))
             cmake_script.rmdir(os.path.join(build_dir, be, "install"))
             cmake_script.cpdir(
@@ -3389,6 +3407,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--build-sha", type=str, required=False, help="SHA associated with the build."
+    )
+    parser.add_argument(
+        "--enable-coverage",
+        action="store_true",
+        required=False,
+        help="Build core and backends with gcc --coverage and add coverage.py to the image. "
+        "The image is labeled com.amd.build.coverage=1 and is for measurement only, not release.",
     )
     parser.add_argument(
         "--build-dir",
@@ -4167,6 +4192,15 @@ if __name__ == "__main__":
                 log(msg)
         except build_presets.BuildPresetError as e:
             fail(str(e))
+
+    if FLAGS.enable_coverage:
+        coverage_flags = [EXTRA_CORE_CMAKE_FLAGS]
+        for be in backends:
+            coverage_flags.append(EXTRA_BACKEND_CMAKE_FLAGS.setdefault(be, {}))
+        for flags in coverage_flags:
+            for name in ("CMAKE_C_FLAGS", "CMAKE_CXX_FLAGS"):
+                flags[name] = (flags.get(name, "") + " --coverage").strip()
+        log("coverage: core and backends built with --coverage")
 
     # Initialize map of common components and repo-tag for each.
     # ROCm builds use ROCm org repos and tags (triton-inference-server-core, triton-inference-server-backend, triton-inference-server-third_party).
