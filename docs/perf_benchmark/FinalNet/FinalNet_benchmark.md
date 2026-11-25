@@ -13,7 +13,7 @@ In this tutorial, we walk through the steps required to benchmark the performanc
 - Results
 
 ## Prerequisites
-1. ROCm 7.2 installed on host machine
+1. ROCm 10.2 installed on host machine
 2. AMD Intrinsic MI355X or MI300X
 3. Docker
 
@@ -37,8 +37,8 @@ Now we should have FinalNet model checkpoints in onnx.
 ## Model deployment on AMD MI300X or MI355X through Triton Inference Server
 1. Build ROCm enabled tritonserver image with onnxruntime and python backend
 ```
-git clone https://github.com/ROCm/triton-inference-server-server.git
-# Follow README.md to build tritonserver docker image
+git clone -b release/r26.10.amd0 https://github.com/AMD-Ecosystem/triton-inference-server-server.git
+# Follow README.md to build tritonserver docker image (Debian 12, ROCm 10.2)
 ```
 2. Create model directory on host machine and copy FinalNet onnx checkpoints there
 ```bash
