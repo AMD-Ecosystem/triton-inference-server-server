@@ -207,8 +207,16 @@ MI300A and MI355X are rejected. If no GPU is visible, check that `/dev/kfd` and
 | `TRITON_SKIP_GPU_CHECK=1` | Skip the check, for example for `tritonserver --help`, CI, or hosts without a GPU |
 | `TRITON_MI300X_DEVICE_IDS` | Override the accepted PCI device ids (space separated, default `0x74a1 0x74a9`) |
 
+The default build, with or without `--backend` for a single backend, is unchanged.
+It uses the two-arch images (`gfx942` and `gfx950`) and runs on MI300X, MI308X,
+MI325X (gfx942) and MI350X, MI355X (gfx950). The entrypoint check is inactive in those
+images because `TRITON_REQUIRE_MI300X` is not set.
+
 `qa/L0_mi300x_entrypoint_check/test.sh` tests the check against fake GPU topologies
-and needs no GPU.
+and needs no GPU. `qa/L0_mi300x_entrypoint_check/verify_build_variants.sh` dry-runs
+`build.py` for each single backend and for `--mi300x-only` and checks the image names,
+GPU architectures, and flag validation. It builds no images and overwrites the
+git-ignored `./build` directory.
 
 ## Run Triton Server
 
