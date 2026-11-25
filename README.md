@@ -172,6 +172,44 @@ instructions do not cover it. `build.py` can install a pinned ROCm vLLM wheel
 that path is not part of the flow documented here. The in-tree vLLM base scripts
 (`scripts/build_debian12_rocm_72_vllm_base.sh`) are still ROCm 7.2.
 
+### MI300X-only all-in-one image
+
+The steps above build an image that runs on MI300X (gfx942) and MI355X (gfx950).
+To build one image with the ONNX Runtime, Python, PyTorch and TensorFlow backends
+for **AMD Instinct MI300X only**, build the gfx942-only base and TensorFlow images,
+then pass `--mi300x-only` to `build.py`:
+
+```bash
+# gfx942-only images: localhost/debian12_rocm10.2.0-py312-gfx942
+# and localhost/debian12_rocm10.2.0_tensorflow-gfx942
+ROCM_GFX_ARCHS=gfx942 ./scripts/build_debian12_rocm_102_py312_base.sh
+ROCM_GFX_ARCHS=gfx942 ./scripts/build_debian12_rocm_102_tensorflow.sh
+
+python3 build.py \
+  --no-container-pull \
+  --enable-logging --enable-stats --enable-tracing --enable-metrics \
+  --enable-rocm --mi300x-only \
+  --endpoint=grpc --endpoint=http \
+  --backend=onnxruntime --backend=python --backend=pytorch --backend=tensorflow \
+  --linux-distro=debian
+```
+
+`--mi300x-only` builds for `gfx942` only, uses the `-gfx942` images, labels the image
+`com.amd.build.gpu=mi300x`, and sets `TRITON_REQUIRE_MI300X=1` in it. The image
+entrypoint (`docker/entrypoint.d/60-mi300x-check.sh`) then refuses to start unless
+every visible GPU is an MI300X. It identifies GPUs by PCI device id from
+`/sys/class/kfd`, not by name, and accepts `0x74a1` and `0x74a9`. MI308X, MI325X,
+MI300A and MI355X are rejected. If no GPU is visible, check that `/dev/kfd` and
+`/dev/dri` are passed to the container.
+
+| Environment variable | Effect |
+|----------------------|--------|
+| `TRITON_SKIP_GPU_CHECK=1` | Skip the check, for example for `tritonserver --help`, CI, or hosts without a GPU |
+| `TRITON_MI300X_DEVICE_IDS` | Override the accepted PCI device ids (space separated, default `0x74a1 0x74a9`) |
+
+`qa/L0_mi300x_entrypoint_check/test.sh` tests the check against fake GPU topologies
+and needs no GPU.
+
 ## Run Triton Server
 
 Start the Triton Server container with your model repository. The `ORT_MIGRAPHX_*`

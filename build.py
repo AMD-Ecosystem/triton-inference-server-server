@@ -1096,7 +1096,7 @@ def tensorflow_rocm_cmake_args():
         cmake_backend_arg("tensorflow",
             "TRITON_TENSORFLOW_DOCKER_IMAGE",
             None,
-            "localhost/debian12_rocm10.2.0_tensorflow"
+            "localhost/debian12_rocm10.2.0_tensorflow" + rocm_image_suffix()
         )
     )
     return cargs
@@ -2072,6 +2072,12 @@ COPY docker/entrypoint.d/ /opt/rocm/entrypoint.d/
 RUN chmod +x /opt/rocm/rocm_entrypoint.sh
 ENTRYPOINT ["/opt/rocm/rocm_entrypoint.sh"]
 """
+        if getattr(FLAGS, "mi300x_only", False):
+            # 60-mi300x-check.sh reads this and refuses to start on any other GPU.
+            df += """
+ENV TRITON_REQUIRE_MI300X=1
+LABEL com.amd.build.gpu=mi300x
+"""
     else:
         df += """
 COPY docker/entrypoint.d/ /opt/nvidia/entrypoint.d/
@@ -2200,13 +2206,23 @@ RUN tar -xvf /opt/_internal/static-libs-for-embedding-only.tar.xz \\
 """
 
 
+def rocm_image_suffix():
+    """Suffix of the gfx942-only base and TensorFlow images (--mi300x-only).
+
+    The default images cover gfx942 and gfx950. With --mi300x-only the build
+    uses images made with ROCM_GFX_ARCHS=gfx942 (see scripts/), tagged with
+    this suffix so they never replace the two-arch images.
+    """
+    return "-gfx942" if getattr(FLAGS, "mi300x_only", False) else ""
+
+
 def get_base_image_rocm_debian():
     """Return base image for ROCm Debian.
 
     The tritonserver wheel requires Python >=3.12. debian12_rocm10.2.0 ships
     Debian's 3.11, so the Debian build uses the py312 image.
     """
-    return "localhost/debian12_rocm10.2.0-py312"
+    return "localhost/debian12_rocm10.2.0-py312" + rocm_image_suffix()
 
 
 def get_base_image_rocm_ubuntu():
@@ -3558,12 +3574,23 @@ if __name__ == "__main__":
         "--rocm-arch",
         type=str,
         required=False,
-        default="gfx942,gfx950",
+        default=None,
         help="Comma-separated AMD GPU target architecture(s) to build ROCm "
-        "backends for. Default gfx942,gfx950 covers MI300X and MI355X. Exported as the "
+        "backends for. Default gfx942,gfx950 covers MI300X and MI355X, or gfx942 "
+        "with --mi300x-only. Exported as the "
         "PYTORCH_ROCM_ARCH environment variable before configuring the "
         "pytorch backend, since PyTorch's CMake (LoadHIP.cmake) fails with "
         "'No GPU arch specified for ROCm build' otherwise.",
+    )
+    parser.add_argument(
+        "--mi300x-only",
+        action="store_true",
+        required=False,
+        help="Build the ROCm image for AMD Instinct MI300X (gfx942) only. Uses the "
+        "gfx942-only base and TensorFlow images (localhost/*-gfx942, built with "
+        "ROCM_GFX_ARCHS=gfx942 by the scripts under scripts/), and the image "
+        "entrypoint refuses to start unless every visible GPU is an MI300X. Set "
+        "TRITON_SKIP_GPU_CHECK=1 in the container to skip that check.",
     )
     parser.add_argument(
         "--linux-distro",
@@ -3934,6 +3961,16 @@ if __name__ == "__main__":
         raise Exception(
             "ROCm builds on this branch support only --linux-distro=debian "
             f"(ROCm 10.2, Debian 12); got --linux-distro={FLAGS.linux_distro}"
+        )
+
+    if FLAGS.mi300x_only and not FLAGS.enable_rocm:
+        raise Exception("--mi300x-only requires --enable-rocm")
+    if FLAGS.rocm_arch is None:
+        FLAGS.rocm_arch = "gfx942" if FLAGS.mi300x_only else "gfx942,gfx950"
+    if FLAGS.mi300x_only and FLAGS.rocm_arch.replace(" ", "") != "gfx942":
+        raise Exception(
+            "--mi300x-only builds for gfx942 only; "
+            f"got --rocm-arch={FLAGS.rocm_arch}"
         )
 
     # Debian 12 is CPython 3.11 and has no CUDA. The default "all" extra
