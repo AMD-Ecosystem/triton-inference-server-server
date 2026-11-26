@@ -74,10 +74,8 @@ RUN printf '%s\n' \
     > /etc/apt/sources.list.d/amdrocm-stable.sources \
     && apt-get update
 
-# Install the ROCm Core SDK 10.2 for the GPU architectures listed in
-# ROCM_GFX_ARCHS (comma-separated). Default covers gfx942 (CDNA3: MI300X,
-# MI325X, MI300A) and gfx950 (CDNA4: MI355X). Pass a single arch to build a
-# smaller image, for example --build-arg ROCM_GFX_ARCHS=gfx950.
+# Install the ROCm Core SDK 10.2 for gfx942 (CDNA3: MI300X, MI308X, MI325X,
+# MI300A) and gfx950 (CDNA4: MI355X); the release images run on both.
 ARG ROCM_GFX_ARCHS=gfx942,gfx950
 ARG ROCM_PKG_VERSION=10.2.0-2
 RUN apt-get update && \
