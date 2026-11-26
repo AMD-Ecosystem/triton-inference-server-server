@@ -3586,10 +3586,11 @@ if __name__ == "__main__":
         "--mi300x-only",
         action="store_true",
         required=False,
-        help="Build the ROCm image for AMD Instinct MI300X (gfx942) only. Uses the "
+        help="Build the ROCm image for AMD Instinct gfx942 GPUs only (MI300X, "
+        "MI308X, MI325X, MI300A). Uses the "
         "gfx942-only base and TensorFlow images (localhost/*-gfx942, built with "
         "ROCM_GFX_ARCHS=gfx942 by the scripts under scripts/), and the image "
-        "entrypoint refuses to start unless every visible GPU is an MI300X. Set "
+        "entrypoint refuses to start unless every visible GPU is gfx942. Set "
         "TRITON_SKIP_GPU_CHECK=1 in the container to skip that check.",
     )
     parser.add_argument(

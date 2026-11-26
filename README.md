@@ -176,7 +176,8 @@ that path is not part of the flow documented here. The in-tree vLLM base scripts
 
 The steps above build an image that runs on MI300X (gfx942) and MI355X (gfx950).
 To build one image with the ONNX Runtime, Python, PyTorch and TensorFlow backends
-for **AMD Instinct MI300X only**, build the gfx942-only base and TensorFlow images,
+for **AMD Instinct gfx942 GPUs only** (MI300X, MI308X, MI325X and MI300A share the
+gfx942 code object), build the gfx942-only base and TensorFlow images,
 then pass `--mi300x-only` to `build.py`:
 
 ```bash
@@ -197,15 +198,15 @@ python3 build.py \
 `--mi300x-only` builds for `gfx942` only, uses the `-gfx942` images, labels the image
 `com.amd.build.gpu=mi300x`, and sets `TRITON_REQUIRE_MI300X=1` in it. The image
 entrypoint (`docker/entrypoint.d/60-mi300x-check.sh`) then refuses to start unless
-every visible GPU is an MI300X. It identifies GPUs by PCI device id from
-`/sys/class/kfd`, not by name, and accepts `0x74a1` and `0x74a9`. MI308X, MI325X,
-MI300A and MI355X are rejected. If no GPU is visible, check that `/dev/kfd` and
-`/dev/dri` are passed to the container.
+every visible GPU is a gfx942 part. It identifies GPUs by the `gfx_target_version`
+(`90402`) and vendor in `/sys/class/kfd`, not by name, so MI300X, MI308X, MI325X and
+MI300A are accepted. MI350X and MI355X (gfx950) and non-AMD devices are rejected. If no
+GPU is visible, check that `/dev/kfd` and `/dev/dri` are passed to the container.
 
 | Environment variable | Effect |
 |----------------------|--------|
 | `TRITON_SKIP_GPU_CHECK=1` | Skip the check, for example for `tritonserver --help`, CI, or hosts without a GPU |
-| `TRITON_MI300X_DEVICE_IDS` | Override the accepted PCI device ids (space separated, default `0x74a1 0x74a9`) |
+| `TRITON_MI300X_DEVICE_IDS` | Optional. Space-separated PCI device ids a gfx942 GPU must also match, for example `"0x74a1 0x74a9"` to accept only MI300X. Unset by default, which accepts any gfx942 GPU |
 
 The default build, with or without `--backend` for a single backend, is unchanged.
 It uses the two-arch images (`gfx942` and `gfx950`) and runs on MI300X, MI308X,
