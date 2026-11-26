@@ -2072,6 +2072,17 @@ COPY docker/entrypoint.d/ /opt/rocm/entrypoint.d/
 RUN chmod +x /opt/rocm/rocm_entrypoint.sh
 ENTRYPOINT ["/opt/rocm/rocm_entrypoint.sh"]
 """
+        if "tensorflow" in backends and (
+            "onnxruntime" in backends or "pytorch" in backends
+        ):
+            # The TensorFlow libraries register their GPU code in static
+            # constructors, so dlopen of the TensorFlow backend can deadlock
+            # against another GPU backend initializing HIP when tritonserver
+            # loads models on several threads. 80-model-load-threads.sh adds
+            # --model-load-thread-count=1 from this variable.
+            df += """
+ENV TRITON_MODEL_LOAD_THREAD_COUNT=1
+"""
         if getattr(FLAGS, "mi300x_only", False):
             # 60-mi300x-check.sh reads this and refuses to start on any other GPU.
             df += """

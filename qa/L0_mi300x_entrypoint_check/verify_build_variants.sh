@@ -1,5 +1,9 @@
 #!/bin/bash
 # Dry-runs build.py (no images are built) and checks that:
+#   * TRITON_MODEL_LOAD_THREAD_COUNT=1 is set only when the image holds the
+#     TensorFlow backend together with ONNX Runtime or PyTorch (see
+#     docker/entrypoint.d/80-model-load-threads.sh); single-backend images keep
+#     Triton's default model-load threading.
 #   * a default build of each single backend still targets gfx942 + gfx950 on
 #     the two-arch images and has no MI300X-only marker. These are the
 #     per-backend images that run on MI300X, MI308X, MI325X, MI350X and MI355X.
@@ -31,6 +35,8 @@ for be in onnxruntime python pytorch tensorflow; do
     check "build.py exits 0" $? "$(tail -n 2 "${LOGS}/${be}.log" | tr '\n' ' ')"
     grep -q "^ARG BASE_IMAGE=localhost/debian12_rocm10.2.0-py312$" "${B}/Dockerfile"
     check "base image is the two-arch localhost/debian12_rocm10.2.0-py312" $? "$(grep -m1 '^ARG BASE_IMAGE' "${B}/Dockerfile")"
+    ! grep -q "TRITON_MODEL_LOAD_THREAD_COUNT" "${B}/Dockerfile"
+    check "no TRITON_MODEL_LOAD_THREAD_COUNT in a single-backend image" $? "found variable"
     ! grep -qE "TRITON_REQUIRE_MI300X|com\.amd\.build\.gpu|debian12_rocm10\.2\.0[A-Za-z0-9_.-]*-gfx942" "${FILES[@]}" 2>/dev/null
     check "no MI300X-only marker or -gfx942 image name" $? "found marker"
     if [ "${be}" = "pytorch" ]; then
@@ -47,6 +53,22 @@ for be in onnxruntime python pytorch tensorflow; do
     fi
 done
 
+echo "== all-in-one default (gfx942 + gfx950)"
+python3 build.py "${COMMON[@]}" \
+    --backend=onnxruntime --backend=python --backend=pytorch --backend=tensorflow \
+    > "${LOGS}/allinone_default.log" 2>&1
+check "build.py exits 0" $? "$(tail -n 2 "${LOGS}/allinone_default.log" | tr '\n' ' ')"
+grep -q "ENV TRITON_MODEL_LOAD_THREAD_COUNT=1" "${B}/Dockerfile"
+check "TRITON_MODEL_LOAD_THREAD_COUNT=1 set" $? ""
+! grep -qE "TRITON_REQUIRE_MI300X|com\.amd\.build\.gpu" "${B}/Dockerfile"
+check "no MI300X-only marker" $? "found marker"
+
+echo "== TensorFlow with a CPU-only companion backend"
+python3 build.py "${COMMON[@]}" --backend=python --backend=tensorflow > "${LOGS}/tf_python.log" 2>&1
+check "build.py exits 0" $? "$(tail -n 2 "${LOGS}/tf_python.log" | tr '\n' ' ')"
+! grep -q "TRITON_MODEL_LOAD_THREAD_COUNT" "${B}/Dockerfile"
+check "no TRITON_MODEL_LOAD_THREAD_COUNT without a second GPU backend" $? "found variable"
+
 echo "== all-in-one --mi300x-only"
 python3 build.py "${COMMON[@]}" --mi300x-only \
     --backend=onnxruntime --backend=python --backend=pytorch --backend=tensorflow \
@@ -56,6 +78,8 @@ grep -q "^ARG BASE_IMAGE=localhost/debian12_rocm10.2.0-py312-gfx942$" "${B}/Dock
 check "base image is gfx942-only" $? "$(grep -m1 '^ARG BASE_IMAGE' "${B}/Dockerfile")"
 grep -q "ENV TRITON_REQUIRE_MI300X=1" "${B}/Dockerfile"
 check "TRITON_REQUIRE_MI300X=1 set" $? ""
+grep -q "ENV TRITON_MODEL_LOAD_THREAD_COUNT=1" "${B}/Dockerfile"
+check "TRITON_MODEL_LOAD_THREAD_COUNT=1 set" $? ""
 grep -q "export PYTORCH_ROCM_ARCH=gfx942$" "${B}/cmake_build"
 check "PYTORCH_ROCM_ARCH=gfx942" $? ""
 grep -q "TRITON_TENSORFLOW_DOCKER_IMAGE=localhost/debian12_rocm10.2.0_tensorflow-gfx942" "${B}/cmake_build"
