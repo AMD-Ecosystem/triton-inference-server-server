@@ -1,0 +1,33 @@
+#!/bin/bash
+docker run \
+  --name tritonserver_container \
+  --rm \
+  -it \
+  --device=/dev/kfd \
+  --device=/dev/dri \
+  --group-add video \
+  --ipc=host \
+  --net=host \
+  --security-opt seccomp=unconfined \
+  --cap-add=SYS_PTRACE \
+  --cap-add=CAP_SYS_ADMIN \
+  -e ROCR_VISIBLE_DEVICES=0 \
+  -e MIGRAPHX_MLIR_USE_SPECIFIC_OPS="attention,convolution,dot,fused" \
+  -e ORT_MIGRAPHX_MODEL_CACHE_PATH=/models/cache/ \
+  -e ORT_MIGRAPHX_HIP_GRAPH_ENABLE=1 \
+  -e ORT_MIGRAPHX_COALESCE_IO=1 \
+  -e ORT_MIGRAPHX_COMPILE_BATCHES="1,2,4,8,16,32,64,128" \
+  -v /home/sajandhy/triton_models:/models/ \
+  -v /home/sajandhy/migraphx_cache:/models/cache/ \
+  --entrypoint=/opt/tritonserver/bin/tritonserver \
+  tritonserver \
+  --model-repository=/models \
+  --exit-on-error=false \
+  --model-control-mode=explicit \
+  --model-load-thread-count=1 \
+  --load-model=simple \
+  --load-model=simple_identity \
+  --http-port=8000 \
+  --grpc-port=8001 \
+  --metrics-port=8002 \
+  --log-verbose=0

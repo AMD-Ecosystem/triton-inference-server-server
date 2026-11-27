@@ -129,6 +129,48 @@ Skip the long TF compile during `docker build` if you only need the image shell:
 RUN_TF_REPRO_DURING_BUILD=0 ./scripts/build_debian12_rocm_101_tensorflow.sh
 ```
 
+#### Incremental TensorFlow build with host-persisted state (recommended)
+
+A TensorFlow build inside `docker build` cannot keep its checkout or Bazel cache,
+so every retry re-clones and recompiles from scratch. `scripts/run_tf_build_volume.sh`
+builds the image without the TF step, then runs the TF build in a container with
+these host directories mounted, so retries only redo what changed:
+
+| Host path (override with env var) | Container path | Contents |
+| --- | --- | --- |
+| `~/tf-workspace` (`TF_HOST_WORKSPACE`) | `/workspace` | `tensorflow-upstream` checkout |
+| `~/.cache/bazel-tf` (`TF_HOST_BAZEL_CACHE`) | `/root/.cache/bazel` | Bazel output base and compiled objects |
+| `~/.cache/pip-tf` (`TF_HOST_PIP_CACHE`) | `/root/.cache/pip` | pip downloads |
+
+Run it inside `tmux` (the build takes hours) and keep a log:
+
+```bash
+tmux new -s tfbuild
+./scripts/run_tf_build_volume.sh 2>&1 | tee ~/tf_build.log
+# Retries, reusing the existing image:
+SKIP_IMAGE_BUILD=1 ./scripts/run_tf_build_volume.sh 2>&1 | tee ~/tf_build.log
+```
+
+When the build succeeds, the script calls `scripts/package_tf_wheel_image.sh`, which
+unpacks the wheel's `tensorflow/` package into `localhost/debian12_rocm10.1.0_tensorflow`
+at the path the Triton TensorFlow backend copies `libtensorflow_cc.so.2` and
+`libtensorflow_framework.so.2` from. **Step 3 (`build.py --backend=tensorflow`) needs
+this**; without it the backend build fails with `Could not find the file .../tensorflow/libtensorflow_cc.so.2
+in container tensorflow_backend_tflib`. The clean build environment is kept as
+`localhost/debian12_rocm10.1.0_tensorflow_buildenv`. To repackage after a build without
+rerunning it: `./scripts/package_tf_wheel_image.sh`.
+
+The container is named `tf-rocm-build`; follow it with `docker logs -f tf-rocm-build`
+and stop it with `Ctrl+C` or `docker stop tf-rocm-build`. The build script and patch
+are mounted from this repo, so edits take effect without rebuilding the image.
+The run fails (instead of reporting success) if the installed TensorFlow is not a
+ROCm build or sees no GPUs.
+
+**ROCm Bazel flags note:** in this TensorFlow tree `--config=rocm` only expands to
+`no_tfrt` and silently produces a CPU-only wheel. `repro_tensorflow_rocm_build_test.sh`
+passes the `rocm_clang_hermetic` flags explicitly (plus libc++ and a clang warning
+override); keep them when changing the build command.
+
 **GPU target note:** the TensorFlow Dockerfile currently sets
 `TF_ROCM_AMDGPU_TARGETS=gfx942` for a faster validation build. Restore the full
 target list in `Dockerfile.debian12_rocm10.1.0_tensorflow` if you need other
